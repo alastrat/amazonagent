@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/openfang"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/posthog"
@@ -73,6 +74,16 @@ func main() {
 	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
 	_ = service.NewPipelineService(agentRuntime, campaignRepo, scoringRepo, dealSvc)
+
+	// Seed default scoring config for dev tenant
+	if cfg.IsDev() {
+		devTenantID := domain.TenantID("00000000-0000-0000-0000-000000000010")
+		if err := scoringSvc.EnsureDefault(ctx, devTenantID); err != nil {
+			slog.Warn("failed to seed dev scoring config", "error", err)
+		} else {
+			slog.Info("dev scoring config ready", "tenant_id", devTenantID)
+		}
+	}
 
 	// Handlers
 	handlers := api.Handlers{

@@ -21,9 +21,10 @@ func NewAuthProvider(jwtSecret string, isDev bool) *AuthProvider {
 func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.AuthContext, error) {
 	if p.isDev && len(token) > 4 && token[:4] == "dev-" {
 		slog.Warn("using dev auth mode — do not use in production")
+		// Stable UUIDs for dev mode — Postgres requires UUID format for tenant_id
 		return &port.AuthContext{
-			UserID:   domain.UserID("dev-user"),
-			TenantID: domain.TenantID("dev-tenant"),
+			UserID:   domain.UserID("00000000-0000-0000-0000-000000000001"),
+			TenantID: domain.TenantID("00000000-0000-0000-0000-000000000010"),
 			Role:     domain.RoleOwner,
 		}, nil
 	}
