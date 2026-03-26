@@ -11,15 +11,16 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/openfang"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/posthog"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/postgres"
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/simulator"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/supabase"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/handler"
 	"github.com/pluriza/fba-agent-orchestrator/internal/config"
+	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
 	"github.com/pluriza/fba-agent-orchestrator/internal/port"
 	"github.com/pluriza/fba-agent-orchestrator/internal/service"
 )
@@ -61,8 +62,16 @@ func main() {
 	// Adapters
 	authProvider := supabase.NewAuthProvider(cfg.SupabaseJWTSecret, cfg.IsDev())
 	analyticsProvider := posthog.NewAnalyticsProvider(cfg.PostHogAPIKey, cfg.PostHogHost, cfg.IsDev())
-	agentRuntime := openfang.NewAgentRuntime(cfg.OpenFangAPIURL, cfg.OpenFangAPIKey)
-	durableRuntime := inngest.NewDurableRuntime(cfg.InngestEventKey, cfg.InngestDev)
+
+	// Agent runtime: use simulator in dev, OpenFang in production
+	var agentRuntime port.AgentRuntime
+	if cfg.OpenFangAPIURL != "" {
+		agentRuntime = openfang.NewAgentRuntime(cfg.OpenFangAPIURL, cfg.OpenFangAPIKey)
+		slog.Info("using OpenFang agent runtime", "url", cfg.OpenFangAPIURL)
+	} else {
+		agentRuntime = simulator.NewAgentRuntime()
+		slog.Info("using simulated agent runtime (set OPENFANG_API_URL to use OpenFang)")
+	}
 
 	// ID generator
 	idGen := port.UUIDGenerator{}
@@ -71,9 +80,17 @@ func main() {
 	eventSvc := service.NewEventService(eventRepo, analyticsProvider, idGen)
 	scoringSvc := service.NewScoringService(scoringRepo, idGen)
 	dealSvc := service.NewDealService(dealRepo, eventSvc, idGen)
+	pipelineSvc := service.NewPipelineService(agentRuntime, campaignRepo, scoringRepo, dealSvc)
+
+	// Durable runtime (Inngest) — needs pipelineSvc for workflow registration
+	durableRuntime, err := inngest.NewDurableRuntime(pipelineSvc)
+	if err != nil {
+		slog.Error("failed to create inngest runtime", "error", err)
+		os.Exit(1)
+	}
+
 	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
-	_ = service.NewPipelineService(agentRuntime, campaignRepo, scoringRepo, dealSvc)
 
 	// Seed default scoring config for dev tenant
 	if cfg.IsDev() {
@@ -97,6 +114,9 @@ func main() {
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
+
+	// Mount Inngest handler — Inngest dev server calls this to execute functions
+	router.Mount("/api/inngest", durableRuntime.Handler())
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),

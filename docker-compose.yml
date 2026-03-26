@@ -17,7 +17,7 @@ services:
 
   inngest:
     image: inngest/inngest:latest
-    command: ["inngest", "dev", "--no-discovery"]
+    command: ["inngest", "dev", "-u", "http://api:8080/api/inngest"]
     ports:
       - "${INNGEST_PORT:-8290}:8288"
     environment:
@@ -35,8 +35,9 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/fba_orchestrator?sslmode=disable
       SUPABASE_JWT_SECRET: dev-secret
       INNGEST_EVENT_KEY: test
-      INNGEST_SIGNING_KEY: test
-      INNGEST_DEV: "true"
+      INNGEST_SIGNING_KEY: ""
+      INNGEST_DEV: "1"
+      INNGEST_BASE_URL: http://inngest:8288
       OPENFANG_API_URL: ""
       OPENFANG_API_KEY: ""
       POSTHOG_API_KEY: ""
@@ -44,6 +45,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      inngest:
+        condition: service_started
 
   web:
     build:
