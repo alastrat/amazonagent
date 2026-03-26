@@ -1,0 +1,24 @@
+home_dir = "/data"
+data_dir = "/data/db"
+log_level = "info"
+api_listen = "0.0.0.0:4200"
+api_key = ""
+mode = "default"
+
+[default_model]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+
+[[fallback_providers]]
+provider = "openai"
+model = "gpt-4o"
+api_key_env = "OPENAI_API_KEY"
+
+[memory]
+embedding_model = "all-MiniLM-L6-v2"
+consolidation_threshold = 10000
+
+[web]
+search_provider = "auto"
+cache_ttl_minutes = 15

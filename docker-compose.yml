@@ -23,6 +23,25 @@ services:
     environment:
       INNGEST_DEV: "1"
 
+  openfang:
+    image: openfang/openfang:latest
+    ports:
+      - "${OPENFANG_PORT:-4200}:4200"
+    volumes:
+      - ./deploy/openfang/config.toml:/root/.openfang/config.toml:ro
+      - openfang_data:/data
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4200/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   api:
     build:
       context: .
@@ -38,7 +57,7 @@ services:
       INNGEST_SIGNING_KEY: ""
       INNGEST_DEV: "1"
       INNGEST_BASE_URL: http://inngest:8288
-      OPENFANG_API_URL: ""
+      OPENFANG_API_URL: http://openfang:4200
       OPENFANG_API_KEY: ""
       POSTHOG_API_KEY: ""
       POSTHOG_HOST: https://app.posthog.com
@@ -47,6 +66,8 @@ services:
         condition: service_healthy
       inngest:
         condition: service_started
+      openfang:
+        condition: service_healthy
 
   web:
     build:
@@ -63,3 +84,4 @@ services:
 
 volumes:
   pgdata:
+  openfang_data:
