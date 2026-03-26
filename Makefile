@@ -1,8 +1,18 @@
-.PHONY: dev test build migrate lint docker-up docker-down
+.PHONY: dev test build migrate lint docker-up docker-down up down logs
 
-# Start local infrastructure
+# Run everything via Docker (postgres + inngest + api + web)
+up:
+	docker compose up --build -d
+
+down:
+	docker compose down
+
+logs:
+	docker compose logs -f
+
+# Start only infrastructure (postgres + inngest) for local dev
 docker-up:
-	docker compose up -d
+	docker compose up -d postgres inngest
 
 docker-down:
 	docker compose down

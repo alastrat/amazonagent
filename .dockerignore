@@ -1,0 +1,12 @@
+.git
+.env
+.env.local
+bin/
+dist/
+docs/
+archive/
+apps/web/node_modules
+apps/web/.next
+*.md
+!go.mod
+!go.sum

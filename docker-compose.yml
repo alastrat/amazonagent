@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,6 +21,39 @@ services:
       - "8288:8288"
     environment:
       INNGEST_DEV: "1"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      ENV: development
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/fba_orchestrator?sslmode=disable
+      SUPABASE_JWT_SECRET: dev-secret
+      INNGEST_EVENT_KEY: test
+      INNGEST_SIGNING_KEY: test
+      INNGEST_DEV: "true"
+      OPENFANG_API_URL: ""
+      OPENFANG_API_KEY: ""
+      POSTHOG_API_KEY: ""
+      POSTHOG_HOST: https://app.posthog.com
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - api
 
 volumes:
   pgdata:
