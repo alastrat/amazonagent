@@ -17,6 +17,7 @@ type CandidateResult struct {
 	SupplierCandidates []SupplierCandidate `json:"supplier_candidates"`
 	OutreachDrafts     []string            `json:"outreach_drafts"`
 	ReviewerVerdict    string              `json:"reviewer_verdict"`
+	Tier               DealTier            `json:"tier"`
 	IterationCount     int                 `json:"iteration_count"`
 }
 
