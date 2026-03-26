@@ -17,7 +17,7 @@ services:
 
   inngest:
     image: inngest/inngest:latest
-    command: ["inngest", "dev", "-u", "http://api:8080/api/inngest"]
+    command: ["inngest", "dev", "--no-discovery"]
     ports:
       - "${INNGEST_PORT:-8290}:8288"
     environment:
