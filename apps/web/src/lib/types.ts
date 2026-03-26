@@ -122,3 +122,17 @@ export interface DomainEvent {
   actor_id: string;
   timestamp: string;
 }
+
+export type DiscoveryCadence = "nightly" | "twice_daily" | "weekly";
+
+export interface DiscoveryConfig {
+  id: string;
+  tenant_id: string;
+  categories: string[];
+  baseline_criteria: Criteria;
+  scoring_config_id: string;
+  cadence: DiscoveryCadence;
+  enabled: boolean;
+  last_run_at?: string;
+  next_run_at?: string;
+}

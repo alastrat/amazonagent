@@ -7,6 +7,7 @@ import type {
   Thresholds,
   DashboardSummary,
   DomainEvent,
+  DiscoveryConfig,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -93,6 +94,17 @@ class ApiClient {
   getEvents(params?: Record<string, string>) {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return this.fetch<DomainEvent[]>(`/events${qs}`);
+  }
+
+  getDiscovery() {
+    return this.fetch<DiscoveryConfig>("/discovery");
+  }
+
+  updateDiscovery(data: Partial<DiscoveryConfig>) {
+    return this.fetch<DiscoveryConfig>("/discovery", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
   }
 }
 
