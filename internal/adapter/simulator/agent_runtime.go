@@ -85,9 +85,6 @@ func (r *AgentRuntime) RunResearchPipeline(ctx context.Context, input port.Pipel
 			float64(risk)*w.Risk +
 			float64(sourcing)*w.Sourcing
 
-		// Scale to 1-10 range
-		overall = overall * 10
-
 		verdict := "PASS"
 		iterations := 1
 		if overall < 6.0 {
