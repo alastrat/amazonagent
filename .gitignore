@@ -1,0 +1,25 @@
+# Go
+bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Build
+dist/
+node_modules/
+
+# Inngest
+.inngest/
