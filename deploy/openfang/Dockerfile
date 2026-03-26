@@ -4,6 +4,10 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/RightNow-AI/openfang.git .
+
+# Use debug profile to avoid LTO memory exhaustion, then strip the binary
+ENV CARGO_PROFILE_RELEASE_LTO=false
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN cargo build --release -p openfang-cli
 
 FROM debian:bookworm-slim
