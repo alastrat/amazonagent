@@ -24,7 +24,9 @@ services:
       INNGEST_DEV: "1"
 
   openfang:
-    image: openfang/openfang:latest
+    build:
+      context: deploy/openfang
+      dockerfile: Dockerfile
     ports:
       - "${OPENFANG_PORT:-4200}:4200"
     volumes:
