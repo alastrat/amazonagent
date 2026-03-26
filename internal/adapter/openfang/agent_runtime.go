@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
-	"github.com/pluriza/fba-agent-orchestrator/internal/port"
 )
 
 type AgentRuntime struct {
@@ -18,12 +17,10 @@ func NewAgentRuntime(apiURL, apiKey string) *AgentRuntime {
 	return &AgentRuntime{apiURL: apiURL, apiKey: apiKey}
 }
 
-func (r *AgentRuntime) RunResearchPipeline(ctx context.Context, input port.PipelineInput) (*domain.ResearchResult, error) {
-	slog.Info("running research pipeline via OpenFang",
-		"campaign_id", input.CampaignID,
-		"tenant_id", input.TenantID,
-		"keywords", input.Criteria.Keywords,
+func (r *AgentRuntime) RunAgent(ctx context.Context, task domain.AgentTask) (*domain.AgentOutput, error) {
+	slog.Info("running agent via OpenFang",
+		"agent", task.AgentName,
+		"url", r.apiURL,
 	)
-
-	return nil, fmt.Errorf("OpenFang research pipeline not yet implemented — configure OPENFANG_API_URL and OPENFANG_API_KEY")
+	return nil, fmt.Errorf("OpenFang agent execution not yet implemented for agent %q", task.AgentName)
 }

@@ -6,14 +6,8 @@ import (
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
 )
 
+// AgentRuntime executes a single agent task.
+// Pipeline orchestration (sequence, gates, retries) is NOT the runtime's job.
 type AgentRuntime interface {
-	RunResearchPipeline(ctx context.Context, input PipelineInput) (*domain.ResearchResult, error)
-}
-
-type PipelineInput struct {
-	CampaignID    domain.CampaignID    `json:"campaign_id"`
-	TenantID      domain.TenantID      `json:"tenant_id"`
-	Criteria      domain.Criteria      `json:"criteria"`
-	ScoringConfig domain.ScoringConfig `json:"scoring_config"`
-	SourceASINs   []string             `json:"source_asins,omitempty"`
+	RunAgent(ctx context.Context, task domain.AgentTask) (*domain.AgentOutput, error)
 }
