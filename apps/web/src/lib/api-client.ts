@@ -9,10 +9,11 @@ import type {
   DomainEvent,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
 
 class ApiClient {
-  private token: string | null = null;
+  // Default to dev token for local development — replaced by real Supabase auth in production
+  private token: string | null = "dev-user-dev-tenant";
 
   setToken(token: string) {
     this.token = token;

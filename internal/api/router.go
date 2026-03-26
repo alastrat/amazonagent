@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/handler"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/middleware"
 	"github.com/pluriza/fba-agent-orchestrator/internal/port"
@@ -23,6 +24,14 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RealIP)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:*", "https://localhost:*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
+		ExposedHeaders:   []string{"X-Request-ID"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 	r.Use(middleware.RequestID(idGen))
 
 	r.Get("/health", h.Health.Health)
