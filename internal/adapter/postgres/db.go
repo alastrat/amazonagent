@@ -22,10 +22,15 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 
 func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+	// Try source-relative path first (local dev), then /migrations (Docker)
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrationsDir := filepath.Join(filepath.Dir(thisFile), "migrations")
 
 	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		migrationsDir = "/migrations"
+		entries, err = os.ReadDir(migrationsDir)
+	}
 	if err != nil {
 		return fmt.Errorf("read migrations dir: %w", err)
 	}

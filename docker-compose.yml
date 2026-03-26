@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "54322:5432"
+      - "${PG_PORT:-54324}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -18,7 +18,7 @@ services:
   inngest:
     image: inngest/inngest:latest
     ports:
-      - "8288:8288"
+      - "${INNGEST_PORT:-8290}:8288"
     environment:
       INNGEST_DEV: "1"
 
@@ -27,7 +27,7 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     ports:
-      - "8080:8080"
+      - "${API_PORT:-8081}:8080"
     environment:
       PORT: "8080"
       ENV: development
@@ -48,10 +48,12 @@ services:
     build:
       context: apps/web
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:${API_PORT:-8081}
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3001}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8081}
     depends_on:
       - api
 
