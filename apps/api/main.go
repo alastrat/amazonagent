@@ -80,7 +80,8 @@ func main() {
 	eventSvc := service.NewEventService(eventRepo, analyticsProvider, idGen)
 	scoringSvc := service.NewScoringService(scoringRepo, idGen)
 	dealSvc := service.NewDealService(dealRepo, eventSvc, idGen)
-	pipelineSvc := service.NewPipelineService(agentRuntime, campaignRepo, scoringRepo, dealSvc)
+	orchestrator := service.NewPipelineOrchestrator(agentRuntime)
+	pipelineSvc := service.NewPipelineService(orchestrator, campaignRepo, scoringRepo, dealSvc)
 
 	// Durable runtime (Inngest) — needs pipelineSvc for workflow registration
 	durableRuntime, err := inngest.NewDurableRuntime(pipelineSvc)

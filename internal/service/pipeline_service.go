@@ -1,5 +1,3 @@
-//go:build ignore
-
 package service
 
 import (
@@ -11,14 +9,14 @@ import (
 )
 
 type PipelineService struct {
-	agentRuntime port.AgentRuntime
+	orchestrator *PipelineOrchestrator
 	campaigns    port.CampaignRepo
 	scoring      port.ScoringConfigRepo
 	deals        *DealService
 }
 
-func NewPipelineService(agentRuntime port.AgentRuntime, campaigns port.CampaignRepo, scoring port.ScoringConfigRepo, deals *DealService) *PipelineService {
-	return &PipelineService{agentRuntime: agentRuntime, campaigns: campaigns, scoring: scoring, deals: deals}
+func NewPipelineService(orchestrator *PipelineOrchestrator, campaigns port.CampaignRepo, scoring port.ScoringConfigRepo, deals *DealService) *PipelineService {
+	return &PipelineService{orchestrator: orchestrator, campaigns: campaigns, scoring: scoring, deals: deals}
 }
 
 func (s *PipelineService) RunCampaign(ctx context.Context, campaignID domain.CampaignID, tenantID domain.TenantID) error {
@@ -39,14 +37,10 @@ func (s *PipelineService) RunCampaign(ctx context.Context, campaignID domain.Cam
 		return fmt.Errorf("get scoring config: %w", err)
 	}
 
-	input := port.PipelineInput{
-		CampaignID:    campaignID,
-		TenantID:      tenantID,
-		Criteria:      campaign.Criteria,
-		ScoringConfig: *sc,
-	}
+	pipelineConfig := domain.DefaultPipelineConfig(tenantID)
+	pipelineConfig.Scoring = sc.Weights
 
-	result, err := s.agentRuntime.RunResearchPipeline(ctx, input)
+	result, err := s.orchestrator.RunPipeline(ctx, campaignID, campaign.Criteria, pipelineConfig)
 	if err != nil {
 		_ = campaign.Transition(domain.CampaignStatusFailed)
 		_ = s.campaigns.Update(ctx, campaign)
