@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/inngest/inngestgo"
 	"github.com/inngest/inngestgo/step"
@@ -33,11 +34,14 @@ func NewDurableRuntime(pipelineSvc *service.PipelineService) (*DurableRuntime, e
 	}
 
 	// Register the campaign processing function
+	// LLM pipeline calls can take 5-10 minutes for a full campaign
+	retries := 1
 	inngestgo.CreateFunction(
 		client,
 		inngestgo.FunctionOpts{
-			ID:   "process-campaign",
-			Name: "Process Campaign Research Pipeline",
+			ID:      "process-campaign",
+			Name:    "Process Campaign Research Pipeline",
+			Retries: &retries,
 		},
 		inngestgo.EventTrigger("campaign/requested", nil),
 		func(ctx context.Context, input inngestgo.Input[CampaignRequestedEvent]) (any, error) {
@@ -48,8 +52,13 @@ func NewDurableRuntime(pipelineSvc *service.PipelineService) (*DurableRuntime, e
 				"tenant_id", data.TenantID,
 			)
 
+			// Give the pipeline enough time — LLM calls are slow
+			// Each agent call can take 10-60s, with 6 stages × N candidates
+			pipelineCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			defer cancel()
+
 			// Run the pipeline as a durable step
-			_, err := step.Run(ctx, "run-research-pipeline", func(ctx context.Context) (string, error) {
+			_, err := step.Run(pipelineCtx, "run-research-pipeline", func(ctx context.Context) (string, error) {
 				err := pipelineSvc.RunCampaign(
 					ctx,
 					domain.CampaignID(data.CampaignID),

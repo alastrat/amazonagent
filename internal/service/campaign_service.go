@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
@@ -10,15 +11,16 @@ import (
 )
 
 type CampaignService struct {
-	repo    port.CampaignRepo
-	scoring port.ScoringConfigRepo
-	events  *EventService
-	durable port.DurableRuntime
-	idGen   port.IDGenerator
+	repo     port.CampaignRepo
+	scoring  port.ScoringConfigRepo
+	events   *EventService
+	durable  port.DurableRuntime
+	pipeline *PipelineService
+	idGen    port.IDGenerator
 }
 
-func NewCampaignService(repo port.CampaignRepo, scoring port.ScoringConfigRepo, events *EventService, durable port.DurableRuntime, idGen port.IDGenerator) *CampaignService {
-	return &CampaignService{repo: repo, scoring: scoring, events: events, durable: durable, idGen: idGen}
+func NewCampaignService(repo port.CampaignRepo, scoring port.ScoringConfigRepo, events *EventService, durable port.DurableRuntime, pipeline *PipelineService, idGen port.IDGenerator) *CampaignService {
+	return &CampaignService{repo: repo, scoring: scoring, events: events, durable: durable, pipeline: pipeline, idGen: idGen}
 }
 
 type CreateCampaignInput struct {
@@ -58,10 +60,16 @@ func (s *CampaignService) Create(ctx context.Context, input CreateCampaignInput)
 		"trigger_type": input.TriggerType,
 	})
 
-	if s.durable != nil {
-		if err := s.durable.TriggerCampaignProcessing(ctx, campaign.ID, input.TenantID); err != nil {
-			return nil, fmt.Errorf("trigger campaign processing: %w", err)
-		}
+	// Run pipeline async — in a goroutine for now
+	// TODO: migrate to per-step Inngest execution once step timeouts are configurable
+	if s.pipeline != nil {
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			if err := s.pipeline.RunCampaign(bgCtx, campaign.ID, input.TenantID); err != nil {
+				slog.Error("pipeline failed", "campaign_id", campaign.ID, "error", err)
+			}
+		}()
 	}
 
 	return campaign, nil

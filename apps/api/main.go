@@ -90,7 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, idGen)
+	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, pipelineSvc, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
 
 	// Seed default scoring config for dev tenant
