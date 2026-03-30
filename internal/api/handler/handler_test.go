@@ -182,7 +182,7 @@ func setupRouter(dealRepo *memDealRepo) (*httptest.Server, *memDealRepo) {
 
 	eventSvc := service.NewEventService(eventRepo, nil, idGen)
 	dealSvc := service.NewDealService(dealRepo, eventSvc, idGen)
-	campaignSvc := service.NewCampaignService(campRepo, scoringRepo, eventSvc, nil, idGen)
+	campaignSvc := service.NewCampaignService(campRepo, scoringRepo, eventSvc, nil, nil, idGen)
 	scoringSvc := service.NewScoringService(scoringRepo, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
 
