@@ -11,7 +11,7 @@ import (
 
 func TestPipelineOrchestrator_RunPipeline(t *testing.T) {
 	runtime := simulator.NewAgentRuntime()
-	orchestrator := service.NewPipelineOrchestrator(runtime)
+	orchestrator := service.NewPipelineOrchestrator(runtime, nil)
 
 	config := domain.DefaultPipelineConfig("test-tenant")
 	criteria := domain.Criteria{
@@ -54,7 +54,7 @@ func TestPipelineOrchestrator_RunPipeline(t *testing.T) {
 
 func TestPipelineOrchestrator_EmptySourcing(t *testing.T) {
 	runtime := &emptySourcingRuntime{}
-	orchestrator := service.NewPipelineOrchestrator(runtime)
+	orchestrator := service.NewPipelineOrchestrator(runtime, nil)
 
 	config := domain.DefaultPipelineConfig("test-tenant")
 	result, err := orchestrator.RunPipeline(context.Background(), "camp-2", domain.Criteria{}, config)

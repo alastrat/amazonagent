@@ -11,11 +11,14 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/exa"
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/firecrawl"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/openfang"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/posthog"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/postgres"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/simulator"
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/spapi"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/supabase"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/handler"
@@ -76,11 +79,17 @@ func main() {
 	// ID generator
 	idGen := port.UUIDGenerator{}
 
+	// Tool clients (pre-resolve external data for agents)
+	spapiClient := spapi.NewClient(cfg.SPAPIClientID, cfg.SPAPIClientSecret, cfg.SPAPIRefreshToken, cfg.SPAPIMarketplace)
+	exaClient := exa.NewClient(cfg.ExaAPIKey)
+	firecrawlClient := firecrawl.NewClient(cfg.FirecrawlAPIKey)
+	toolResolver := service.NewToolResolver(spapiClient, exaClient, firecrawlClient)
+
 	// Services
 	eventSvc := service.NewEventService(eventRepo, analyticsProvider, idGen)
 	scoringSvc := service.NewScoringService(scoringRepo, idGen)
 	dealSvc := service.NewDealService(dealRepo, eventSvc, idGen)
-	orchestrator := service.NewPipelineOrchestrator(agentRuntime)
+	orchestrator := service.NewPipelineOrchestrator(agentRuntime, toolResolver)
 	pipelineSvc := service.NewPipelineService(orchestrator, campaignRepo, scoringRepo, dealSvc)
 
 	// Durable runtime (Inngest) — needs pipelineSvc for workflow registration

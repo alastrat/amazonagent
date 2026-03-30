@@ -11,12 +11,14 @@ import (
 
 type PipelineOrchestrator struct {
 	runtime  port.AgentRuntime
+	tools    *ToolResolver
 	reviewer *Reviewer
 }
 
-func NewPipelineOrchestrator(runtime port.AgentRuntime) *PipelineOrchestrator {
+func NewPipelineOrchestrator(runtime port.AgentRuntime, tools *ToolResolver) *PipelineOrchestrator {
 	return &PipelineOrchestrator{
 		runtime:  runtime,
+		tools:    tools,
 		reviewer: NewReviewer(runtime),
 	}
 }
@@ -24,12 +26,22 @@ func NewPipelineOrchestrator(runtime port.AgentRuntime) *PipelineOrchestrator {
 func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domain.CampaignID, criteria domain.Criteria, config domain.PipelineConfig) (*domain.ResearchResult, error) {
 	slog.Info("pipeline: starting", "campaign_id", campaignID)
 
-	// Stage 1: Sourcing
+	// Stage 1: Sourcing — pre-resolve Amazon product data + web context
+	sourcingInput := map[string]any{"criteria": criteria}
+	if o.tools != nil {
+		resolved, err := o.tools.ResolveForSourcing(ctx, criteria)
+		if err != nil {
+			slog.Warn("pipeline: sourcing tool resolution failed, using criteria only", "error", err)
+		} else {
+			sourcingInput = resolved
+		}
+	}
+
 	sourcingCfg := config.Agents["sourcing"]
 	sourcingOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
 		AgentName:    "sourcing",
 		SystemPrompt: sourcingCfg.SystemPrompt,
-		Input:        map[string]any{"criteria": criteria},
+		Input:        sourcingInput,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sourcing agent failed: %w", err)
@@ -86,12 +98,22 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 			Flags:     toStringSlice(gatingOut.Structured["flags"]),
 		})
 
-		// Stage 3: Profitability
+		// Stage 3: Profitability — pre-resolve fee estimates
+		profitInput := candidateMap
+		if o.tools != nil {
+			resolved, err := o.tools.ResolveForProfitability(ctx, candidateMap, criteria.Marketplace)
+			if err != nil {
+				slog.Warn("pipeline: profitability tool resolution failed", "asin", asin, "error", err)
+			} else {
+				profitInput = resolved
+			}
+		}
+
 		profitCfg := config.Agents["profitability"]
 		profitOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
 			AgentName:    "profitability",
 			SystemPrompt: profitCfg.SystemPrompt,
-			Input:        candidateMap,
+			Input:        profitInput,
 			Context:      agentContexts,
 		})
 		if err != nil {
@@ -116,12 +138,22 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 			Facts:     profitOut.Structured,
 		})
 
-		// Stage 4: Demand + Competition
+		// Stage 4: Demand + Competition — pre-resolve demand signals
+		demandInput := candidateMap
+		if o.tools != nil {
+			resolved, err := o.tools.ResolveForDemand(ctx, candidateMap, criteria.Marketplace)
+			if err != nil {
+				slog.Warn("pipeline: demand tool resolution failed", "asin", asin, "error", err)
+			} else {
+				demandInput = resolved
+			}
+		}
+
 		demandCfg := config.Agents["demand"]
 		demandOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
 			AgentName:    "demand",
 			SystemPrompt: demandCfg.SystemPrompt,
-			Input:        candidateMap,
+			Input:        demandInput,
 			Context:      agentContexts,
 		})
 		if err != nil {
@@ -135,12 +167,22 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 			Facts:     demandOut.Structured,
 		})
 
-		// Stage 5: Supplier
+		// Stage 5: Supplier — pre-resolve supplier discovery data
+		supplierInput := candidateMap
+		if o.tools != nil {
+			resolved, err := o.tools.ResolveForSupplier(ctx, candidateMap)
+			if err != nil {
+				slog.Warn("pipeline: supplier tool resolution failed", "asin", asin, "error", err)
+			} else {
+				supplierInput = resolved
+			}
+		}
+
 		supplierCfg := config.Agents["supplier"]
 		supplierOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
 			AgentName:    "supplier",
 			SystemPrompt: supplierCfg.SystemPrompt,
-			Input:        candidateMap,
+			Input:        supplierInput,
 			Context:      agentContexts,
 		})
 		if err != nil {
