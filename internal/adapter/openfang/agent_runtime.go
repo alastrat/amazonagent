@@ -69,14 +69,14 @@ func (r *AgentRuntime) RunAgent(ctx context.Context, task domain.AgentTask) (*do
 		)
 		// Return raw response as best-effort
 		structured = map[string]any{
-			"raw_response": resp.Answer,
-			"reasoning":    resp.Answer,
+			"raw_response": resp.GetResponse(),
+			"reasoning":    resp.GetResponse(),
 		}
 	}
 
 	return &domain.AgentOutput{
 		Structured: structured,
-		Raw:        resp.Answer,
+		Raw:        resp.GetResponse(),
 		TokensUsed: resp.InputTokens + resp.OutputTokens,
 		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
@@ -155,10 +155,19 @@ system_prompt = """%s"""
 
 // messageResponse is the OpenFang message response format.
 type messageResponse struct {
-	Answer       string `json:"answer"`
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	Iterations   int    `json:"iterations"`
+	Response     string  `json:"response"`
+	Answer       string  `json:"answer"` // fallback field name
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+	Iterations   int     `json:"iterations"`
+}
+
+func (m *messageResponse) GetResponse() string {
+	if m.Response != "" {
+		return m.Response
+	}
+	return m.Answer
 }
 
 // sendMessage sends a blocking message to an agent.
@@ -200,46 +209,102 @@ func (r *AgentRuntime) setHeaders(req *http.Request) {
 }
 
 // buildAgentMessage constructs the message to send to the agent.
-// It includes the input data, upstream context, and the expected output format.
 func buildAgentMessage(task domain.AgentTask) string {
 	var msg string
 
-	msg += "## Task\n\n"
-	msg += "Analyze the following data and respond with a JSON object.\n\n"
+	// Strong JSON-only instruction at the top
+	msg += "You MUST respond with ONLY a valid JSON object. No markdown code fences, no explanation, no text before or after. Just raw JSON.\n\n"
 
-	// Add input data
+	// Add input data — keep it compact to reduce token usage
 	if len(task.Input) > 0 {
-		inputJSON, _ := json.MarshalIndent(task.Input, "", "  ")
-		msg += "## Input Data\n\n```json\n" + string(inputJSON) + "\n```\n\n"
+		inputJSON, _ := json.Marshal(task.Input)
+		msg += "Input:\n" + string(inputJSON) + "\n\n"
 	}
 
 	// Add upstream context if provided
 	if len(task.Context) > 0 {
-		msg += "## Context from Previous Analysis\n\n"
+		msg += "Context from previous agents:\n"
 		for _, ctx := range task.Context {
-			ctxJSON, _ := json.MarshalIndent(ctx.Facts, "", "  ")
-			msg += fmt.Sprintf("### %s\n```json\n%s\n```\n", ctx.AgentName, string(ctxJSON))
+			ctxJSON, _ := json.Marshal(ctx.Facts)
+			msg += fmt.Sprintf("- %s: %s", ctx.AgentName, string(ctxJSON))
 			if len(ctx.Flags) > 0 {
-				msg += fmt.Sprintf("Flags: %v\n", ctx.Flags)
+				msg += fmt.Sprintf(" flags=%v", ctx.Flags)
 			}
 			msg += "\n"
 		}
+		msg += "\n"
 	}
 
-	// Add output schema hint
-	if len(task.OutputSchema) > 0 {
-		schemaJSON, _ := json.MarshalIndent(task.OutputSchema, "", "  ")
-		msg += "## Expected Output Format\n\nRespond with a JSON object matching this schema:\n```json\n" + string(schemaJSON) + "\n```\n\n"
+	// Add output schema — use agent-specific schemas for better compliance
+	schema := task.OutputSchema
+	if len(schema) == 0 {
+		schema = defaultSchemaFor(task.AgentName)
+	}
+	if len(schema) > 0 {
+		schemaJSON, _ := json.Marshal(schema)
+		msg += "Required JSON output format:\n" + string(schemaJSON) + "\n\n"
 	}
 
-	msg += "**IMPORTANT: Respond ONLY with a valid JSON object. No markdown, no explanation, just the JSON.**"
+	msg += "RESPOND WITH ONLY THE JSON OBJECT. NO OTHER TEXT."
 
 	return msg
 }
 
+// defaultSchemaFor returns the expected output schema for each agent type.
+func defaultSchemaFor(agentName string) map[string]any {
+	switch agentName {
+	case "sourcing":
+		return map[string]any{
+			"candidates": []map[string]any{
+				{"asin": "string", "title": "string", "brand": "string", "category": "string", "amazon_price": 0.0, "bsr_rank": 0, "seller_count": 0},
+			},
+		}
+	case "gating":
+		return map[string]any{
+			"passed":     true,
+			"risk_score": 5,
+			"flags":      []string{},
+			"reasoning":  "string",
+		}
+	case "profitability":
+		return map[string]any{
+			"amazon_price":   0.0,
+			"wholesale_cost": 0.0,
+			"net_margin_pct": 0.0,
+			"roi_pct":        0.0,
+			"reasoning":      "string",
+		}
+	case "demand":
+		return map[string]any{
+			"demand_score":      7,
+			"competition_score": 6,
+			"bsr_rank":          5000,
+			"monthly_units":     500,
+			"reasoning":         "string",
+		}
+	case "supplier":
+		return map[string]any{
+			"suppliers": []map[string]any{
+				{"company": "string", "unit_price": 0.0, "moq": 100, "lead_time_days": 14, "authorized": true},
+			},
+			"outreach_draft": "string",
+			"reasoning":      "string",
+		}
+	case "reviewer":
+		return map[string]any{
+			"opportunity_viability": 7,
+			"execution_confidence":  7,
+			"sourcing_feasibility":  7,
+			"reasoning":             "string",
+		}
+	default:
+		return nil
+	}
+}
+
 // parseAgentResponse attempts to extract a JSON object from the agent's response.
 func parseAgentResponse(resp *messageResponse) (map[string]any, error) {
-	answer := resp.Answer
+	answer := resp.GetResponse()
 
 	// Try direct JSON parse first
 	var result map[string]any
