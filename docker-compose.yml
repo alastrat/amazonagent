@@ -24,6 +24,8 @@ services:
       INNGEST_DEV: "1"
 
   openfang:
+    profiles:
+      - openfang
     build:
       context: deploy/openfang
       dockerfile: Dockerfile
@@ -59,8 +61,8 @@ services:
       INNGEST_SIGNING_KEY: ""
       INNGEST_DEV: "1"
       INNGEST_BASE_URL: http://inngest:8288
-      OPENFANG_API_URL: http://openfang:4200
-      OPENFANG_API_KEY: ""
+      OPENFANG_API_URL: ${OPENFANG_API_URL:-}
+      OPENFANG_API_KEY: ${OPENFANG_API_KEY:-}
       POSTHOG_API_KEY: ""
       POSTHOG_HOST: https://app.posthog.com
     depends_on:
@@ -68,8 +70,6 @@ services:
         condition: service_healthy
       inngest:
         condition: service_started
-      openfang:
-        condition: service_healthy
 
   web:
     build:
