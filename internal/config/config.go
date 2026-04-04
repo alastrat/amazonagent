@@ -60,9 +60,9 @@ func Load() (*Config, error) {
 		PostHogAPIKey: getEnv("POSTHOG_API_KEY", ""),
 		PostHogHost:   getEnv("POSTHOG_HOST", "https://app.posthog.com"),
 
-		SPAPIClientID:     getEnv("SP_API_CLIENT_ID", ""),
-		SPAPIClientSecret: getEnv("SP_API_CLIENT_SECRET", ""),
-		SPAPIRefreshToken: getEnv("SP_API_REFRESH_TOKEN", ""),
+		SPAPIClientID:     getEnvAny("SP_API_CLIENT_ID", "SP_API_LWA_APP_ID"),
+		SPAPIClientSecret: getEnvAny("SP_API_CLIENT_SECRET", "SP_API_LWA_CLIENT_SECRET"),
+		SPAPIRefreshToken: getEnvAny("SP_API_REFRESH_TOKEN"),
 		SPAPIMarketplace:  getEnv("SP_API_MARKETPLACE_ID", "ATVPDKIKX0DER"),
 
 		ExaAPIKey:       getEnv("EXA_API_KEY", ""),
@@ -82,6 +82,16 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvAny returns the first non-empty value from multiple env var names.
+func getEnvAny(keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func mustEnv(key string) string {

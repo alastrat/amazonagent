@@ -132,39 +132,67 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 		return nil, fmt.Errorf("search failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var result struct {
-		Items []struct {
-			ASIN      string `json:"asin"`
-			Summaries []struct {
-				BrandName      string `json:"brandName"`
-				ItemName       string `json:"itemName"`
-				Classification struct {
-					DisplayName string `json:"displayName"`
-				} `json:"itemClassification"`
-			} `json:"summaries"`
-			SalesRanks []struct {
-				Rank             int    `json:"rank"`
-				DisplayGroupName string `json:"displayGroupName"`
-			} `json:"salesRanks"`
-		} `json:"items"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// Use flexible parsing since SP-API response format varies
+	var raw map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	var products []port.ProductSearchResult
-	for _, item := range result.Items {
-		p := port.ProductSearchResult{ASIN: item.ASIN}
-		if len(item.Summaries) > 0 {
-			p.Title = item.Summaries[0].ItemName
-			p.Brand = item.Summaries[0].BrandName
-			p.Category = item.Summaries[0].Classification.DisplayName
+	items, _ := raw["items"].([]any)
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
 		}
-		if len(item.SalesRanks) > 0 {
-			p.BSRRank = item.SalesRanks[0].Rank
-			p.BSRCategory = item.SalesRanks[0].DisplayGroupName
+
+		p := port.ProductSearchResult{}
+		p.ASIN, _ = item["asin"].(string)
+		if p.ASIN == "" {
+			continue
 		}
+
+		// Parse summaries
+		if summaries, ok := item["summaries"].([]any); ok && len(summaries) > 0 {
+			if s, ok := summaries[0].(map[string]any); ok {
+				p.Title, _ = s["itemName"].(string)
+				p.Brand, _ = s["brandName"].(string)
+				// itemClassification can be string or object
+				switch cls := s["itemClassification"].(type) {
+				case string:
+					p.Category = cls
+				case map[string]any:
+					p.Category, _ = cls["displayName"].(string)
+				}
+			}
+		}
+
+		// Parse sales ranks
+		if ranks, ok := item["salesRanks"].([]any); ok {
+			for _, rawRank := range ranks {
+				if r, ok := rawRank.(map[string]any); ok {
+					if classRanks, ok := r["classificationRanks"].([]any); ok && len(classRanks) > 0 {
+						if cr, ok := classRanks[0].(map[string]any); ok {
+							if rank, ok := cr["rank"].(float64); ok {
+								p.BSRRank = int(rank)
+							}
+							p.BSRCategory, _ = cr["title"].(string)
+						}
+					}
+					if displayRanks, ok := r["displayGroupRanks"].([]any); ok && len(displayRanks) > 0 {
+						if dr, ok := displayRanks[0].(map[string]any); ok {
+							if rank, ok := dr["rank"].(float64); ok && p.BSRRank == 0 {
+								p.BSRRank = int(rank)
+							}
+							if p.BSRCategory == "" {
+								p.BSRCategory, _ = dr["title"].(string)
+							}
+						}
+					}
+				}
+			}
+		}
+
 		products = append(products, p)
 	}
 

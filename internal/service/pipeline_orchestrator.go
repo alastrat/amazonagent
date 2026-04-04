@@ -88,7 +88,7 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 
 		passed, _ := gatingOut.Structured["passed"].(bool)
 		if !passed {
-			slog.Debug("pipeline: eliminated at gating", "asin", asin)
+			slog.Info("pipeline: eliminated at gating", "asin", asin)
 			continue
 		}
 
@@ -124,7 +124,7 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 
 		marginPct, _ := getFloat(profitOut.Structured, "net_margin_pct")
 		if marginPct < config.Thresholds.MinMarginPct {
-			slog.Debug("pipeline: eliminated at profitability", "asin", asin, "margin", marginPct)
+			slog.Info("pipeline: eliminated at profitability", "asin", asin, "margin", marginPct)
 			continue
 		}
 

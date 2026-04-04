@@ -40,6 +40,11 @@ func (s *PipelineService) RunCampaign(ctx context.Context, campaignID domain.Cam
 	pipelineConfig := domain.DefaultPipelineConfig(tenantID)
 	pipelineConfig.Scoring = sc.Weights
 
+	// Override pipeline thresholds with campaign criteria if provided
+	if campaign.Criteria.MinMarginPct != nil {
+		pipelineConfig.Thresholds.MinMarginPct = *campaign.Criteria.MinMarginPct
+	}
+
 	result, err := s.orchestrator.RunPipeline(ctx, campaignID, campaign.Criteria, pipelineConfig)
 	if err != nil {
 		_ = campaign.Transition(domain.CampaignStatusFailed)

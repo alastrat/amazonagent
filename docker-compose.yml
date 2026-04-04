@@ -65,6 +65,14 @@ services:
       OPENFANG_API_KEY: ${OPENFANG_API_KEY:-}
       POSTHOG_API_KEY: ""
       POSTHOG_HOST: https://app.posthog.com
+      SP_API_CLIENT_ID: ${SP_API_CLIENT_ID:-}
+      SP_API_CLIENT_SECRET: ${SP_API_CLIENT_SECRET:-}
+      SP_API_REFRESH_TOKEN: ${SP_API_REFRESH_TOKEN:-}
+      SP_API_LWA_APP_ID: ${SP_API_LWA_APP_ID:-}
+      SP_API_LWA_CLIENT_SECRET: ${SP_API_LWA_CLIENT_SECRET:-}
+      SP_API_MARKETPLACE_ID: ${SP_API_MARKETPLACE_ID:-ATVPDKIKX0DER}
+      EXA_API_KEY: ${EXA_API_KEY:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
