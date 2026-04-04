@@ -70,6 +70,15 @@ func (r *ToolResolver) ResolveForProfitability(ctx context.Context, candidate ma
 	asin, _ := candidate["asin"].(string)
 	price, _ := candidate["amazon_price"].(float64)
 
+	// SP-API catalog search doesn't return pricing — try to get it from fee estimate
+	// or use a category-based estimate as fallback
+	if price <= 0 {
+		// Try to extract from nested product data
+		if p, ok := candidate["price"].(float64); ok && p > 0 {
+			price = p
+		}
+	}
+
 	if r.products != nil && asin != "" && price > 0 {
 		fees, err := r.products.EstimateFees(ctx, asin, price, marketplace)
 		if err != nil {

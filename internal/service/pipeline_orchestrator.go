@@ -109,6 +109,30 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 			}
 		}
 
+		// Use deterministic fee calculation as the AUTHORITATIVE margin
+		// The LLM agent assesses viability but does NOT calculate the numbers
+		var marginPct float64
+		var fbaCalcData map[string]any
+		if calc, ok := profitInput["fba_calculation"]; ok {
+			if fbaCalc, ok := calc.(domain.FBAFeeCalculation); ok {
+				marginPct = fbaCalc.NetMarginPct
+				fbaCalcData = map[string]any{
+					"net_margin_pct": fbaCalc.NetMarginPct,
+					"roi_pct":        fbaCalc.ROIPct,
+					"net_profit":     fbaCalc.NetProfit,
+					"total_fees":     fbaCalc.TotalFees,
+					"referral_fee":   fbaCalc.ReferralFee,
+					"fba_fee":        fbaCalc.FBAFulfillment,
+				}
+			}
+		}
+
+		if marginPct < config.Thresholds.MinMarginPct {
+			slog.Info("pipeline: eliminated at profitability (deterministic)", "asin", asin, "margin", marginPct, "threshold", config.Thresholds.MinMarginPct)
+			continue
+		}
+
+		// Now ask the LLM to assess the profitability (qualitative, not quantitative)
 		profitCfg := config.Agents["profitability"]
 		profitOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
 			AgentName:    "profitability",
@@ -117,20 +141,19 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 			Context:      agentContexts,
 		})
 		if err != nil {
-			slog.Warn("pipeline: profitability failed, skipping", "asin", asin, "error", err)
-			continue
+			slog.Warn("pipeline: profitability agent failed, using deterministic calc only", "asin", asin, "error", err)
+			// Use deterministic calc as fallback — don't skip the candidate
+			profitOut = &domain.AgentOutput{
+				Structured: fbaCalcData,
+			}
 		}
 		trail = append(trail, domain.AgentTrailEntry{AgentName: "profitability", ASIN: asin, DurationMs: profitOut.DurationMs})
 
-		marginPct, _ := getFloat(profitOut.Structured, "net_margin_pct")
-		if marginPct < config.Thresholds.MinMarginPct {
-			slog.Info("pipeline: eliminated at profitability", "asin", asin, "margin", marginPct)
-			continue
-		}
-
-		if errs := domain.ValidateAgentOutput("profitability", profitOut.Structured); len(errs) > 0 {
-			slog.Warn("pipeline: profitability validation failed", "asin", asin, "errors", errs)
-			continue
+		// Merge deterministic calc into agent output (deterministic wins for numbers)
+		if fbaCalcData != nil {
+			for k, v := range fbaCalcData {
+				profitOut.Structured[k] = v
+			}
 		}
 
 		agentContexts = append(agentContexts, domain.AgentContext{

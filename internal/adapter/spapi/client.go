@@ -118,7 +118,7 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 	}
 
 	query := strings.Join(keywords, " ")
-	endpoint := fmt.Sprintf("/catalog/2022-04-01/items?marketplaceIds=%s&keywords=%s&pageSize=20",
+	endpoint := fmt.Sprintf("/catalog/2022-04-01/items?marketplaceIds=%s&keywords=%s&pageSize=20&includedData=summaries,salesRanks,attributes",
 		marketplaceID(marketplace), url.QueryEscape(query))
 
 	resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
@@ -193,11 +193,111 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 			}
 		}
 
+		// Try to extract price from attributes
+		if attrs, ok := item["attributes"].(map[string]any); ok {
+			if listPrice, ok := attrs["list_price"].([]any); ok && len(listPrice) > 0 {
+				if lp, ok := listPrice[0].(map[string]any); ok {
+					if amount, ok := lp["value"].(float64); ok {
+						p.AmazonPrice = amount
+					}
+				}
+			}
+		}
+
 		products = append(products, p)
 	}
 
+	// Enrich with pricing data from competitive pricing API (for products still missing price)
+	c.enrichPricing(ctx, products, marketplace)
+
 	slog.Info("sp-api: search complete", "keywords", keywords, "results", len(products))
 	return products, nil
+}
+
+// enrichPricing calls the SP-API competitive pricing endpoint to get real prices.
+func (c *Client) enrichPricing(ctx context.Context, products []port.ProductSearchResult, marketplace string) {
+	// Batch ASINs that need pricing (max 20 per request)
+	var asinsNeedPricing []string
+	asinIndex := make(map[string]int)
+	for i, p := range products {
+		if p.ASIN != "" && p.AmazonPrice <= 0 {
+			asinsNeedPricing = append(asinsNeedPricing, p.ASIN)
+			asinIndex[p.ASIN] = i
+		}
+	}
+
+	if len(asinsNeedPricing) == 0 {
+		return
+	}
+
+	// Build comma-separated ASIN list for batch request
+	asinParam := strings.Join(asinsNeedPricing, ",")
+	endpoint := fmt.Sprintf("/products/pricing/v0/competitivePrice?MarketplaceId=%s&Asins=%s&ItemType=Asin",
+		marketplaceID(marketplace), asinParam)
+
+	resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		slog.Warn("sp-api: competitive pricing request failed", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var raw map[string]any
+	json.NewDecoder(resp.Body).Decode(&raw)
+
+	payload, ok := raw["payload"].([]any)
+	if !ok {
+		return
+	}
+
+	for _, rawItem := range payload {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		asin, _ := item["ASIN"].(string)
+		idx, exists := asinIndex[asin]
+		if !exists {
+			continue
+		}
+
+		prod, ok := item["Product"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		cp, ok := prod["CompetitivePricing"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		// Extract price from competitive prices
+		if prices, ok := cp["CompetitivePrices"].([]any); ok && len(prices) > 0 {
+			if price, ok := prices[0].(map[string]any); ok {
+				if priceData, ok := price["Price"].(map[string]any); ok {
+					if lp, ok := priceData["ListingPrice"].(map[string]any); ok {
+						if amount, ok := lp["Amount"].(float64); ok {
+							products[idx].AmazonPrice = amount
+							slog.Info("sp-api: got price", "asin", asin, "price", amount)
+						}
+					}
+				}
+			}
+		}
+
+		// Extract seller count
+		if listings, ok := cp["NumberOfOfferListings"].([]any); ok {
+			for _, l := range listings {
+				if lm, ok := l.(map[string]any); ok {
+					if cond, _ := lm["condition"].(string); cond == "New" {
+						if count, ok := lm["Count"].(float64); ok {
+							products[idx].SellerCount = int(count)
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 func (c *Client) GetProductDetails(ctx context.Context, asins []string, marketplace string) ([]port.ProductSearchResult, error) {
