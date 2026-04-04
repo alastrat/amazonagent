@@ -304,10 +304,81 @@ func (c *Client) GetProductDetails(ctx context.Context, asins []string, marketpl
 	if !c.IsConfigured() {
 		return mockProductDetails(asins), nil
 	}
-	var products []port.ProductSearchResult
-	for _, asin := range asins {
-		products = append(products, port.ProductSearchResult{ASIN: asin})
+
+	// Use competitive pricing to get price + seller count per ASIN
+	products := make([]port.ProductSearchResult, len(asins))
+	for i, asin := range asins {
+		products[i] = port.ProductSearchResult{ASIN: asin}
 	}
+
+	asinParam := strings.Join(asins, ",")
+	endpoint := fmt.Sprintf("/products/pricing/v0/competitivePrice?MarketplaceId=%s&Asins=%s&ItemType=Asin",
+		marketplaceID(marketplace), asinParam)
+
+	resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		slog.Warn("sp-api: competitive pricing failed in GetProductDetails", "error", err)
+		return products, nil
+	}
+	defer resp.Body.Close()
+
+	var raw map[string]any
+	json.NewDecoder(resp.Body).Decode(&raw)
+
+	asinIndex := make(map[string]int)
+	for i, asin := range asins {
+		asinIndex[asin] = i
+	}
+
+	if payload, ok := raw["payload"].([]any); ok {
+		for _, rawItem := range payload {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			asin, _ := item["ASIN"].(string)
+			idx, exists := asinIndex[asin]
+			if !exists {
+				continue
+			}
+
+			prod, _ := item["Product"].(map[string]any)
+			if prod == nil {
+				continue
+			}
+			cp, _ := prod["CompetitivePricing"].(map[string]any)
+			if cp == nil {
+				continue
+			}
+
+			if prices, ok := cp["CompetitivePrices"].([]any); ok && len(prices) > 0 {
+				if price, ok := prices[0].(map[string]any); ok {
+					if pd, ok := price["Price"].(map[string]any); ok {
+						if lp, ok := pd["ListingPrice"].(map[string]any); ok {
+							if amount, ok := lp["Amount"].(float64); ok {
+								products[idx].AmazonPrice = amount
+							}
+						}
+					}
+				}
+			}
+
+			if listings, ok := cp["NumberOfOfferListings"].([]any); ok {
+				for _, l := range listings {
+					if lm, ok := l.(map[string]any); ok {
+						if cond, _ := lm["condition"].(string); cond == "New" {
+							if count, ok := lm["Count"].(float64); ok {
+								products[idx].SellerCount = int(count)
+							}
+						}
+					}
+				}
+			}
+
+			slog.Info("sp-api: product details", "asin", asin, "price", products[idx].AmazonPrice, "sellers", products[idx].SellerCount)
+		}
+	}
+
 	return products, nil
 }
 

@@ -51,12 +51,31 @@ func (r *ToolResolver) ResolveForSourcing(ctx context.Context, criteria domain.C
 	return resolved, nil
 }
 
-// ResolveForGating gets category gating and restriction data.
+// ResolveForGating enriches candidates with competitive pricing data (seller count, price).
 func (r *ToolResolver) ResolveForGating(ctx context.Context, candidate map[string]any, marketplace string) (map[string]any, error) {
 	resolved := make(map[string]any)
 	for k, v := range candidate {
 		resolved[k] = v
 	}
+
+	asin, _ := candidate["asin"].(string)
+
+	// Get competitive pricing to determine seller count and price
+	if r.products != nil && asin != "" {
+		details, err := r.products.GetProductDetails(ctx, []string{asin}, marketplace)
+		if err != nil {
+			slog.Warn("tool-resolver: product details failed", "asin", asin, "error", err)
+		} else if len(details) > 0 {
+			d := details[0]
+			if d.SellerCount > 0 {
+				resolved["seller_count"] = d.SellerCount
+			}
+			if d.AmazonPrice > 0 {
+				resolved["amazon_price"] = d.AmazonPrice
+			}
+		}
+	}
+
 	return resolved, nil
 }
 

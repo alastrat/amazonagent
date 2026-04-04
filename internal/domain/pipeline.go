@@ -26,6 +26,7 @@ type AgentConfig struct {
 
 type PipelineThresholds struct {
 	MinMarginPct         float64 `json:"min_margin_pct"`
+	MinSellerCount       int     `json:"min_seller_count"`
 	RiskMaxScore         int     `json:"risk_max_score"`
 	TierA                float64 `json:"tier_a"`
 	TierB                float64 `json:"tier_b"`
@@ -45,6 +46,7 @@ const (
 func DefaultPipelineThresholds() PipelineThresholds {
 	return PipelineThresholds{
 		MinMarginPct:         15.0,
+		MinSellerCount:       3,
 		RiskMaxScore:         7,
 		TierA:                8.0,
 		TierB:                6.5,

@@ -73,6 +73,30 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 
 		var agentContexts []domain.AgentContext
 
+		// Pre-gate: enrich candidate with competitive pricing data (seller count + price)
+		if o.tools != nil {
+			resolved, err := o.tools.ResolveForGating(ctx, candidateMap, criteria.Marketplace)
+			if err != nil {
+				slog.Warn("pipeline: gating tool resolution failed", "asin", asin, "error", err)
+			} else {
+				candidateMap = resolved
+			}
+		}
+
+		// Pre-gate: seller count filter (eliminates private label before any LLM calls)
+		if config.Thresholds.MinSellerCount > 0 {
+			sellerCount := 0
+			if sc, ok := candidateMap["seller_count"].(float64); ok {
+				sellerCount = int(sc)
+			} else if sc, ok := candidateMap["seller_count"].(int); ok {
+				sellerCount = sc
+			}
+			if sellerCount > 0 && sellerCount < config.Thresholds.MinSellerCount {
+				slog.Info("pipeline: eliminated (private label — too few sellers)", "asin", asin, "sellers", sellerCount, "min", config.Thresholds.MinSellerCount)
+				continue
+			}
+		}
+
 		// Stage 2: Gate/Risk
 		gatingCfg := config.Agents["gating"]
 		gatingOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
