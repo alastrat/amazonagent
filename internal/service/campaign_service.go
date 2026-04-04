@@ -64,7 +64,7 @@ func (s *CampaignService) Create(ctx context.Context, input CreateCampaignInput)
 	// TODO: migrate to per-step Inngest execution once step timeouts are configurable
 	if s.pipeline != nil {
 		go func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
 			if err := s.pipeline.RunCampaign(bgCtx, campaign.ID, input.TenantID); err != nil {
 				slog.Error("pipeline failed", "campaign_id", campaign.ID, "error", err)
