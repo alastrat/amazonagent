@@ -92,14 +92,17 @@ func main() {
 	orchestrator := service.NewPipelineOrchestrator(agentRuntime, toolResolver)
 	pipelineSvc := service.NewPipelineService(orchestrator, campaignRepo, scoringRepo, dealSvc)
 
-	// Durable runtime (Inngest) — needs pipelineSvc for workflow registration
-	durableRuntime, err := inngest.NewDurableRuntime(pipelineSvc)
+	// Durable runtime (Inngest) — registers campaign + candidate functions
+	durableRuntime, err := inngest.NewDurableRuntime(
+		pipelineSvc, orchestrator, toolResolver,
+		campaignRepo, scoringRepo, dealSvc,
+	)
 	if err != nil {
 		slog.Error("failed to create inngest runtime", "error", err)
 		os.Exit(1)
 	}
 
-	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, pipelineSvc, idGen)
+	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, nil, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
 
 	// Seed default scoring config for dev tenant

@@ -60,9 +60,14 @@ func (s *CampaignService) Create(ctx context.Context, input CreateCampaignInput)
 		"trigger_type": input.TriggerType,
 	})
 
-	// Run pipeline async — in a goroutine for now
-	// TODO: migrate to per-step Inngest execution once step timeouts are configurable
-	if s.pipeline != nil {
+	// Trigger pipeline via Inngest durable workflow
+	if s.durable != nil {
+		if err := s.durable.TriggerCampaignProcessing(ctx, campaign.ID, input.TenantID); err != nil {
+			slog.Error("failed to trigger pipeline", "campaign_id", campaign.ID, "error", err)
+			// Non-fatal — campaign is created, pipeline can be retried
+		}
+	} else if s.pipeline != nil {
+		// Fallback to goroutine if Inngest is not available
 		go func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()

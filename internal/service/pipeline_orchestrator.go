@@ -415,6 +415,182 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
+// RunSourcingAgent runs only the sourcing stage — returns candidate list.
+// Used by Inngest parent function.
+func (o *PipelineOrchestrator) RunSourcingAgent(ctx context.Context, sourcingInput map[string]any, config domain.PipelineConfig) ([]map[string]any, error) {
+	sourcingCfg := config.Agents["sourcing"]
+	sourcingOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
+		AgentName:    "sourcing",
+		SystemPrompt: sourcingCfg.SystemPrompt,
+		Input:        sourcingInput,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sourcing agent failed: %w", err)
+	}
+
+	candidates := extractCandidateList(sourcingOut.Structured["candidates"])
+	slog.Info("pipeline: sourcing complete", "candidates", len(candidates))
+	return candidates, nil
+}
+
+// EvaluateCandidate runs the full pipeline for a single candidate (gate → profit → demand → supplier → review).
+// Used by Inngest child function.
+func (o *PipelineOrchestrator) EvaluateCandidate(ctx context.Context, candidateMap map[string]any, config domain.PipelineConfig) (*domain.CandidateResult, error) {
+	asin, _ := candidateMap["asin"].(string)
+	title, _ := candidateMap["title"].(string)
+	brand, _ := candidateMap["brand"].(string)
+	category, _ := candidateMap["category"].(string)
+
+	var agentContexts []domain.AgentContext
+
+	// Gate/Risk
+	gatingCfg := config.Agents["gating"]
+	gatingOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
+		AgentName:    "gating",
+		SystemPrompt: gatingCfg.SystemPrompt,
+		Input:        candidateMap,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("gating failed: %w", err)
+	}
+
+	passed, _ := gatingOut.Structured["passed"].(bool)
+	if !passed {
+		return &domain.CandidateResult{ASIN: asin, Tier: domain.DealTierCut, ReviewerVerdict: "Failed gating"}, nil
+	}
+
+	agentContexts = append(agentContexts, domain.AgentContext{
+		AgentName: "gating", Facts: gatingOut.Structured, Flags: toStringSlice(gatingOut.Structured["flags"]),
+	})
+
+	// Profitability
+	profitInput := candidateMap
+	if o.tools != nil {
+		resolved, err := o.tools.ResolveForProfitability(ctx, candidateMap, "US")
+		if err == nil {
+			profitInput = resolved
+		}
+	}
+
+	// Use deterministic margin as authority
+	var marginPct float64
+	var fbaCalcData map[string]any
+	if calc, ok := profitInput["fba_calculation"]; ok {
+		if fbaCalc, ok := calc.(domain.FBAFeeCalculation); ok {
+			marginPct = fbaCalc.NetMarginPct
+			fbaCalcData = map[string]any{
+				"net_margin_pct": fbaCalc.NetMarginPct,
+				"roi_pct":        fbaCalc.ROIPct,
+				"net_profit":     fbaCalc.NetProfit,
+				"total_fees":     fbaCalc.TotalFees,
+			}
+		}
+	}
+
+	profitCfg := config.Agents["profitability"]
+	profitOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
+		AgentName: "profitability", SystemPrompt: profitCfg.SystemPrompt,
+		Input: profitInput, Context: agentContexts,
+	})
+	if err != nil {
+		profitOut = &domain.AgentOutput{Structured: fbaCalcData}
+	}
+	if fbaCalcData != nil {
+		for k, v := range fbaCalcData {
+			profitOut.Structured[k] = v
+		}
+	}
+
+	agentContexts = append(agentContexts, domain.AgentContext{AgentName: "profitability", Facts: profitOut.Structured})
+
+	// Demand + Competition
+	demandInput := candidateMap
+	if o.tools != nil {
+		resolved, err := o.tools.ResolveForDemand(ctx, candidateMap, "US")
+		if err == nil {
+			demandInput = resolved
+		}
+	}
+
+	demandCfg := config.Agents["demand"]
+	demandOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
+		AgentName: "demand", SystemPrompt: demandCfg.SystemPrompt,
+		Input: demandInput, Context: agentContexts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("demand failed: %w", err)
+	}
+	agentContexts = append(agentContexts, domain.AgentContext{AgentName: "demand", Facts: demandOut.Structured})
+
+	// Supplier
+	supplierInput := candidateMap
+	if o.tools != nil {
+		resolved, err := o.tools.ResolveForSupplier(ctx, candidateMap)
+		if err == nil {
+			supplierInput = resolved
+		}
+	}
+
+	supplierCfg := config.Agents["supplier"]
+	supplierOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{
+		AgentName: "supplier", SystemPrompt: supplierCfg.SystemPrompt,
+		Input: supplierInput, Context: agentContexts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("supplier failed: %w", err)
+	}
+	agentContexts = append(agentContexts, domain.AgentContext{AgentName: "supplier", Facts: supplierOut.Structured})
+
+	// Review (hybrid)
+	reviewInput := mergeMaps(candidateMap, profitOut.Structured, demandOut.Structured, supplierOut.Structured)
+	reviewerCfg := config.Agents["reviewer"]
+	reviewResult, err := o.reviewer.Review(ctx, reviewInput, agentContexts, reviewerCfg, config.Thresholds, config.Scoring)
+	if err != nil {
+		return nil, fmt.Errorf("reviewer failed: %w", err)
+	}
+
+	// Build scores
+	demandScore, _ := getInt(demandOut.Structured, "demand_score")
+	competitionScore, _ := getInt(demandOut.Structured, "competition_score")
+	marginScore := scoreFromMargin(marginPct)
+	riskScore, _ := getInt(gatingOut.Structured, "risk_score")
+	sourcingScore := reviewResult.SourcingFeasibility
+
+	overall := float64(demandScore)*config.Scoring.Demand +
+		float64(competitionScore)*config.Scoring.Competition +
+		float64(marginScore)*config.Scoring.Margin +
+		float64(10-riskScore)*config.Scoring.Risk +
+		float64(sourcingScore)*config.Scoring.Sourcing
+
+	supplierCandidates := extractSupplierCandidates(supplierOut.Structured)
+	outreachDraft, _ := supplierOut.Structured["outreach_draft"].(string)
+	var outreachDrafts []string
+	if outreachDraft != "" {
+		outreachDrafts = []string{outreachDraft}
+	}
+
+	return &domain.CandidateResult{
+		ASIN: asin, Title: title, Brand: brand, Category: category,
+		Scores: domain.DealScores{
+			Demand: demandScore, Competition: competitionScore,
+			Margin: marginScore, Risk: 10 - riskScore,
+			SourcingFeasibility: sourcingScore, Overall: overall,
+		},
+		Evidence: domain.Evidence{
+			Demand:      domain.AgentEvidence{Reasoning: strVal(demandOut.Structured, "reasoning"), Data: demandOut.Structured},
+			Competition: domain.AgentEvidence{Reasoning: strVal(demandOut.Structured, "reasoning"), Data: demandOut.Structured},
+			Margin:      domain.AgentEvidence{Reasoning: strVal(profitOut.Structured, "reasoning"), Data: profitOut.Structured},
+			Risk:        domain.AgentEvidence{Reasoning: strVal(gatingOut.Structured, "reasoning"), Data: gatingOut.Structured},
+			Sourcing:    domain.AgentEvidence{Reasoning: strVal(supplierOut.Structured, "reasoning"), Data: supplierOut.Structured},
+		},
+		SupplierCandidates: supplierCandidates,
+		OutreachDrafts:     outreachDrafts,
+		ReviewerVerdict:    reviewResult.Reasoning,
+		Tier:               reviewResult.Tier,
+		IterationCount:     1,
+	}, nil
+}
+
 func mergeMaps(maps ...map[string]any) map[string]any {
 	result := make(map[string]any)
 	for _, m := range maps {
