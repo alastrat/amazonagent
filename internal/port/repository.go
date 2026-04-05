@@ -63,3 +63,10 @@ type DiscoveryConfigRepo interface {
 	Get(ctx context.Context, tenantID domain.TenantID) (*domain.DiscoveryConfig, error)
 	Upsert(ctx context.Context, dc *domain.DiscoveryConfig) error
 }
+
+type BrandBlocklistRepo interface {
+	List(ctx context.Context, tenantID domain.TenantID) ([]domain.BlockedBrand, error)
+	Add(ctx context.Context, b *domain.BlockedBrand) error
+	Remove(ctx context.Context, tenantID domain.TenantID, brand string) error
+	Exists(ctx context.Context, tenantID domain.TenantID, brand string) (bool, error)
+}
