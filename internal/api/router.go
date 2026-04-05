@@ -10,13 +10,14 @@ import (
 )
 
 type Handlers struct {
-	Health    *handler.HealthHandler
-	Campaign  *handler.CampaignHandler
-	Deal      *handler.DealHandler
-	Scoring   *handler.ScoringHandler
-	Discovery *handler.DiscoveryHandler
-	Event     *handler.EventHandler
-	Dashboard *handler.DashboardHandler
+	Health         *handler.HealthHandler
+	Campaign       *handler.CampaignHandler
+	Deal           *handler.DealHandler
+	Scoring        *handler.ScoringHandler
+	Discovery      *handler.DiscoveryHandler
+	Event          *handler.EventHandler
+	Dashboard      *handler.DashboardHandler
+	BrandBlocklist *handler.BrandBlocklistHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -59,6 +60,10 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Get("/events", h.Event.List)
 
 		r.Get("/dashboard/summary", h.Dashboard.Summary)
+
+		r.Get("/brand-blocklist", h.BrandBlocklist.List)
+		r.Post("/brand-blocklist", h.BrandBlocklist.Add)
+		r.Delete("/brand-blocklist", h.BrandBlocklist.Remove)
 	})
 
 	return r

@@ -121,13 +121,14 @@ func main() {
 
 	// Handlers
 	handlers := api.Handlers{
-		Health:    handler.NewHealthHandler(),
-		Campaign:  handler.NewCampaignHandler(campaignSvc),
-		Deal:      handler.NewDealHandler(dealSvc),
-		Scoring:   handler.NewScoringHandler(scoringSvc),
-		Discovery: handler.NewDiscoveryHandler(discoverySvc),
-		Event:     handler.NewEventHandler(eventSvc),
-		Dashboard: handler.NewDashboardHandler(campaignSvc, dealSvc),
+		Health:         handler.NewHealthHandler(),
+		Campaign:       handler.NewCampaignHandler(campaignSvc),
+		Deal:           handler.NewDealHandler(dealSvc),
+		Scoring:        handler.NewScoringHandler(scoringSvc),
+		Discovery:      handler.NewDiscoveryHandler(discoverySvc),
+		Event:          handler.NewEventHandler(eventSvc),
+		Dashboard:      handler.NewDashboardHandler(campaignSvc, dealSvc),
+		BrandBlocklist: handler.NewBrandBlocklistHandler(brandBlocklistSvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
