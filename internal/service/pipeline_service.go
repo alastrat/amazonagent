@@ -45,6 +45,14 @@ func (s *PipelineService) RunCampaign(ctx context.Context, campaignID domain.Cam
 		pipelineConfig.Thresholds.MinMarginPct = *campaign.Criteria.MinMarginPct
 	}
 
+	// Apply brand filter from campaign criteria
+	if len(campaign.Criteria.BlockedBrands) > 0 {
+		pipelineConfig.Thresholds.BrandFilter.BlockList = campaign.Criteria.BlockedBrands
+	}
+	if len(campaign.Criteria.PreferredBrands) > 0 {
+		pipelineConfig.Thresholds.BrandFilter.AllowList = campaign.Criteria.PreferredBrands
+	}
+
 	result, err := s.orchestrator.RunPipeline(ctx, campaignID, campaign.Criteria, pipelineConfig)
 	if err != nil {
 		_ = campaign.Transition(domain.CampaignStatusFailed)

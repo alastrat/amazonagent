@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type PipelineConfigID string
 
@@ -25,13 +28,49 @@ type AgentConfig struct {
 }
 
 type PipelineThresholds struct {
-	MinMarginPct         float64 `json:"min_margin_pct"`
-	MinSellerCount       int     `json:"min_seller_count"`
-	RiskMaxScore         int     `json:"risk_max_score"`
-	TierA                float64 `json:"tier_a"`
-	TierB                float64 `json:"tier_b"`
-	MaxRewriteIterations int     `json:"max_rewrite_iterations"`
-	RewriteMinDelta      float64 `json:"rewrite_min_delta"`
+	MinMarginPct         float64     `json:"min_margin_pct"`
+	MinSellerCount       int         `json:"min_seller_count"`
+	RiskMaxScore         int         `json:"risk_max_score"`
+	TierA                float64     `json:"tier_a"`
+	TierB                float64     `json:"tier_b"`
+	MaxRewriteIterations int         `json:"max_rewrite_iterations"`
+	RewriteMinDelta      float64     `json:"rewrite_min_delta"`
+	BrandFilter          BrandFilter `json:"brand_filter"`
+}
+
+// BrandFilter controls which brands the pipeline accepts or rejects.
+// If AllowList is non-empty, ONLY those brands pass (whitelist mode).
+// If BlockList is non-empty, those brands are rejected (blacklist mode).
+// If both are empty, all brands pass.
+type BrandFilter struct {
+	AllowList []string `json:"allow_list,omitempty"`
+	BlockList []string `json:"block_list,omitempty"`
+}
+
+// IsBrandAllowed checks if a brand passes the filter.
+func (f BrandFilter) IsBrandAllowed(brand string) bool {
+	if brand == "" {
+		return true // can't filter without brand info
+	}
+	lower := strings.ToLower(brand)
+
+	// Allowlist mode: only listed brands pass
+	if len(f.AllowList) > 0 {
+		for _, allowed := range f.AllowList {
+			if strings.ToLower(allowed) == lower {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Blocklist mode: listed brands are rejected
+	for _, blocked := range f.BlockList {
+		if strings.ToLower(blocked) == lower {
+			return false
+		}
+	}
+	return true
 }
 
 type DealTier string

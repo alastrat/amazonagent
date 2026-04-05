@@ -97,6 +97,12 @@ func (o *PipelineOrchestrator) RunPipeline(ctx context.Context, campaignID domai
 			}
 		}
 
+		// Pre-gate: brand filter (blocklist/allowlist)
+		if !config.Thresholds.BrandFilter.IsBrandAllowed(brand) {
+			slog.Info("pipeline: eliminated (brand filtered)", "asin", asin, "brand", brand)
+			continue
+		}
+
 		// Stage 2: Gate/Risk
 		gatingCfg := config.Agents["gating"]
 		gatingOut, err := o.runtime.RunAgent(ctx, domain.AgentTask{

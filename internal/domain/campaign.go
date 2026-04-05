@@ -49,13 +49,14 @@ const (
 )
 
 type Criteria struct {
-	Keywords          []string `json:"keywords"`
-	MinMonthlyRevenue *int     `json:"min_monthly_revenue,omitempty"`
-	MinMarginPct      *float64 `json:"min_margin_pct,omitempty"`
-	MaxWholesaleCost  *float64 `json:"max_wholesale_cost,omitempty"`
-	MaxMOQ            *int     `json:"max_moq,omitempty"`
-	PreferredBrands   []string `json:"preferred_brands,omitempty"`
-	Marketplace       string   `json:"marketplace"`
+	Keywords          []string    `json:"keywords"`
+	MinMonthlyRevenue *int        `json:"min_monthly_revenue,omitempty"`
+	MinMarginPct      *float64    `json:"min_margin_pct,omitempty"`
+	MaxWholesaleCost  *float64    `json:"max_wholesale_cost,omitempty"`
+	MaxMOQ            *int        `json:"max_moq,omitempty"`
+	PreferredBrands   []string    `json:"preferred_brands,omitempty"`
+	BlockedBrands     []string    `json:"blocked_brands,omitempty"`
+	Marketplace       string      `json:"marketplace"`
 }
 
 func (c *Campaign) Transition(to CampaignStatus) error {
