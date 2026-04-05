@@ -415,6 +415,23 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
+// RunSingleAgent runs one agent with the given config and returns its output.
+// Used by Inngest per-agent steps.
+func (o *PipelineOrchestrator) RunSingleAgent(ctx context.Context, agentName string, agentCfg domain.AgentConfig, input map[string]any, agentContexts []domain.AgentContext) (*domain.AgentOutput, error) {
+	return o.runtime.RunAgent(ctx, domain.AgentTask{
+		AgentName:    agentName,
+		SystemPrompt: agentCfg.SystemPrompt,
+		Input:        input,
+		Context:      agentContexts,
+	})
+}
+
+// ReviewCandidate runs the hybrid reviewer on a candidate.
+// Used by Inngest reviewer step.
+func (o *PipelineOrchestrator) ReviewCandidate(ctx context.Context, reviewInput map[string]any, agentContexts []domain.AgentContext, reviewerCfg domain.AgentConfig, config domain.PipelineConfig) (*ReviewResult, error) {
+	return o.reviewer.Review(ctx, reviewInput, agentContexts, reviewerCfg, config.Thresholds, config.Scoring)
+}
+
 // RunSourcingAgent runs only the sourcing stage — returns candidate list.
 // Used by Inngest parent function.
 func (o *PipelineOrchestrator) RunSourcingAgent(ctx context.Context, sourcingInput map[string]any, config domain.PipelineConfig) ([]map[string]any, error) {

@@ -285,19 +285,184 @@ func NewDurableRuntime(
 				return map[string]string{"asin": asin, "status": "eliminated"}, nil
 			}
 
-			// Step 3: Full pipeline evaluation (LLM calls — each ~15-30s)
-			result, err := step.Run(ctx, "evaluate", func(ctx context.Context) (*domain.CandidateResult, error) {
-				return orchestrator.EvaluateCandidate(ctx, enriched, config)
+			// Step 3: Gate/Risk agent (single LLM call ~15-30s)
+			gatingJSON, err := step.Run(ctx, "agent-gating", func(ctx context.Context) (string, error) {
+				gatingCfg := config.Agents["gating"]
+				out, err := orchestrator.RunSingleAgent(ctx, "gating", gatingCfg, enriched, nil)
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(out.Structured)
+				return string(b), nil
 			})
 			if err != nil {
-				slog.Warn("inngest: evaluation failed", "asin", asin, "error", err)
-				return map[string]string{"asin": asin, "status": "failed"}, nil
+				slog.Warn("inngest: gating failed", "asin", asin, "error", err)
+				return map[string]string{"asin": asin, "status": "failed-gating"}, nil
+			}
+			var gatingResult map[string]any
+			json.Unmarshal([]byte(gatingJSON), &gatingResult)
+			gatingPassed, _ := gatingResult["passed"].(bool)
+			if !gatingPassed {
+				return map[string]string{"asin": asin, "status": "failed-gating"}, nil
+			}
+			gatingCtx := domain.AgentContext{AgentName: "gating", Facts: gatingResult}
+
+			// Step 4: Profitability agent (single LLM call ~15-30s)
+			profitJSON, err := step.Run(ctx, "agent-profitability", func(ctx context.Context) (string, error) {
+				profitInput := enriched
+				if toolResolver != nil {
+					resolved, err := toolResolver.ResolveForProfitability(ctx, enriched, "US")
+					if err == nil {
+						profitInput = resolved
+					}
+				}
+				profitCfg := config.Agents["profitability"]
+				out, err := orchestrator.RunSingleAgent(ctx, "profitability", profitCfg, profitInput, []domain.AgentContext{gatingCtx})
+				if err != nil {
+					return "", err
+				}
+				// Merge deterministic FBA calc
+				if fbaCalc, ok := profitInput["fba_calculation"]; ok {
+					if fc, ok := fbaCalc.(domain.FBAFeeCalculation); ok {
+						out.Structured["net_margin_pct"] = fc.NetMarginPct
+						out.Structured["roi_pct"] = fc.ROIPct
+						out.Structured["net_profit"] = fc.NetProfit
+						out.Structured["total_fees"] = fc.TotalFees
+					}
+				}
+				b, _ := json.Marshal(out.Structured)
+				return string(b), nil
+			})
+			if err != nil {
+				slog.Warn("inngest: profitability failed", "asin", asin, "error", err)
+				return map[string]string{"asin": asin, "status": "failed-profitability"}, nil
+			}
+			var profitResult map[string]any
+			json.Unmarshal([]byte(profitJSON), &profitResult)
+			profitCtx := domain.AgentContext{AgentName: "profitability", Facts: profitResult}
+
+			// Step 5: Demand + Competition agent (single LLM call ~15-30s)
+			demandJSON, err := step.Run(ctx, "agent-demand", func(ctx context.Context) (string, error) {
+				demandInput := enriched
+				if toolResolver != nil {
+					resolved, err := toolResolver.ResolveForDemand(ctx, enriched, "US")
+					if err == nil {
+						demandInput = resolved
+					}
+				}
+				demandCfg := config.Agents["demand"]
+				out, err := orchestrator.RunSingleAgent(ctx, "demand", demandCfg, demandInput, []domain.AgentContext{gatingCtx, profitCtx})
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(out.Structured)
+				return string(b), nil
+			})
+			if err != nil {
+				slog.Warn("inngest: demand failed", "asin", asin, "error", err)
+				return map[string]string{"asin": asin, "status": "failed-demand"}, nil
+			}
+			var demandResult map[string]any
+			json.Unmarshal([]byte(demandJSON), &demandResult)
+			demandCtx := domain.AgentContext{AgentName: "demand", Facts: demandResult}
+
+			// Step 6: Supplier agent (single LLM call ~15-30s)
+			supplierJSON, err := step.Run(ctx, "agent-supplier", func(ctx context.Context) (string, error) {
+				supplierInput := enriched
+				if toolResolver != nil {
+					resolved, err := toolResolver.ResolveForSupplier(ctx, enriched)
+					if err == nil {
+						supplierInput = resolved
+					}
+				}
+				supplierCfg := config.Agents["supplier"]
+				out, err := orchestrator.RunSingleAgent(ctx, "supplier", supplierCfg, supplierInput, []domain.AgentContext{gatingCtx, profitCtx, demandCtx})
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(out.Structured)
+				return string(b), nil
+			})
+			if err != nil {
+				slog.Warn("inngest: supplier failed", "asin", asin, "error", err)
+				return map[string]string{"asin": asin, "status": "failed-supplier"}, nil
+			}
+			var supplierResult map[string]any
+			json.Unmarshal([]byte(supplierJSON), &supplierResult)
+			supplierCtx := domain.AgentContext{AgentName: "supplier", Facts: supplierResult}
+
+			// Step 7: Reviewer (hybrid rules + LLM ~15-30s)
+			reviewJSON, err := step.Run(ctx, "agent-reviewer", func(ctx context.Context) (string, error) {
+				allContexts := []domain.AgentContext{gatingCtx, profitCtx, demandCtx, supplierCtx}
+				reviewInput := make(map[string]any)
+				for k, v := range enriched {
+					reviewInput[k] = v
+				}
+				for k, v := range profitResult {
+					reviewInput[k] = v
+				}
+				for k, v := range demandResult {
+					reviewInput[k] = v
+				}
+				for k, v := range supplierResult {
+					reviewInput[k] = v
+				}
+				reviewerCfg := config.Agents["reviewer"]
+				result, err := orchestrator.ReviewCandidate(ctx, reviewInput, allContexts, reviewerCfg, config)
+				if err != nil {
+					return "", err
+				}
+				b, _ := json.Marshal(result)
+				return string(b), nil
+			})
+			if err != nil {
+				slog.Warn("inngest: reviewer failed", "asin", asin, "error", err)
+				return map[string]string{"asin": asin, "status": "failed-reviewer"}, nil
 			}
 
-			if result.Tier == domain.DealTierCut {
+			var reviewResult service.ReviewResult
+			json.Unmarshal([]byte(reviewJSON), &reviewResult)
+
+			if reviewResult.Tier == domain.DealTierCut {
 				slog.Info("inngest: candidate cut by reviewer", "asin", asin)
 				return map[string]string{"asin": asin, "status": "cut"}, nil
 			}
+
+			// Build the final candidate result
+			title, _ := enriched["title"].(string)
+			brand, _ := enriched["brand"].(string)
+			category, _ := enriched["category"].(string)
+			demandScore, _ := getIntFromMap(demandResult, "demand_score")
+			competitionScore, _ := getIntFromMap(demandResult, "competition_score")
+			marginPct, _ := getFloatFromMap(profitResult, "net_margin_pct")
+			riskScore, _ := getIntFromMap(gatingResult, "risk_score")
+
+			result := &domain.CandidateResult{
+				ASIN:     asin,
+				Title:    title,
+				Brand:    brand,
+				Category: category,
+				Scores: domain.DealScores{
+					Demand:              demandScore,
+					Competition:         competitionScore,
+					Margin:              scoreFromMarginPct(marginPct),
+					Risk:                10 - riskScore,
+					SourcingFeasibility: reviewResult.SourcingFeasibility,
+					Overall:             reviewResult.WeightedComposite,
+				},
+				Evidence: domain.Evidence{
+					Demand:      domain.AgentEvidence{Reasoning: strFromMap(demandResult, "reasoning"), Data: demandResult},
+					Competition: domain.AgentEvidence{Reasoning: strFromMap(demandResult, "reasoning"), Data: demandResult},
+					Margin:      domain.AgentEvidence{Reasoning: strFromMap(profitResult, "reasoning"), Data: profitResult},
+					Risk:        domain.AgentEvidence{Reasoning: strFromMap(gatingResult, "reasoning"), Data: gatingResult},
+					Sourcing:    domain.AgentEvidence{Reasoning: strFromMap(supplierResult, "reasoning"), Data: supplierResult},
+				},
+				ReviewerVerdict: reviewResult.Reasoning,
+				Tier:            reviewResult.Tier,
+				IterationCount:  1,
+			}
+
+			slog.Info("inngest: candidate passed", "asin", asin, "tier", result.Tier, "score", result.Scores.Overall)
 
 			// Step 4: Save deal to database
 			step.Run(ctx, "save-deal", func(ctx context.Context) (string, error) {
@@ -337,6 +502,61 @@ func markFailed(ctx context.Context, campaigns port.CampaignRepo, tenantID domai
 	}
 	c.Transition(domain.CampaignStatusFailed)
 	campaigns.Update(ctx, c)
+}
+
+// Helper functions for extracting typed values from map[string]any
+func getIntFromMap(m map[string]any, key string) (int, bool) {
+	v, ok := m[key]
+	if !ok {
+		return 0, false
+	}
+	switch val := v.(type) {
+	case int:
+		return val, true
+	case float64:
+		return int(val), true
+	}
+	return 0, false
+}
+
+func getFloatFromMap(m map[string]any, key string) (float64, bool) {
+	v, ok := m[key]
+	if !ok {
+		return 0, false
+	}
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case int:
+		return float64(val), true
+	}
+	return 0, false
+}
+
+func strFromMap(m map[string]any, key string) string {
+	v, _ := m[key].(string)
+	return v
+}
+
+func scoreFromMarginPct(marginPct float64) int {
+	switch {
+	case marginPct >= 50:
+		return 10
+	case marginPct >= 40:
+		return 9
+	case marginPct >= 30:
+		return 8
+	case marginPct >= 25:
+		return 7
+	case marginPct >= 20:
+		return 6
+	case marginPct >= 15:
+		return 5
+	case marginPct >= 10:
+		return 4
+	default:
+		return 3
+	}
 }
 
 func (r *DurableRuntime) TriggerCampaignProcessing(ctx context.Context, campaignID domain.CampaignID, tenantID domain.TenantID) error {
