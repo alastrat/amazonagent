@@ -37,6 +37,8 @@ func NewDurableRuntime(
 	pipelineSvc *service.PipelineService,
 	orchestrator *service.PipelineOrchestrator,
 	toolResolver *service.ToolResolver,
+	productDiscovery *service.ProductDiscovery,
+	brandBlocklistSvc *service.BrandBlocklistService,
 	campaigns port.CampaignRepo,
 	scoring port.ScoringConfigRepo,
 	dealSvc *service.DealService,
@@ -80,7 +82,7 @@ func NewDurableRuntime(
 				return nil, fmt.Errorf("start campaign: %w", err)
 			}
 
-			// Step 2: Build pipeline config
+			// Step 2: Build pipeline config (load brand blocklist from DB)
 			configJSON, err := step.Run(ctx, "build-config", func(ctx context.Context) (string, error) {
 				sc, err := scoring.GetByID(ctx, tenantID, campaign.ScoringConfigID)
 				if err != nil {
@@ -97,6 +99,18 @@ func NewDurableRuntime(
 				if len(campaign.Criteria.PreferredBrands) > 0 {
 					config.Thresholds.BrandFilter.AllowList = campaign.Criteria.PreferredBrands
 				}
+				// Load tenant's brand blocklist from DB and merge
+				if brandBlocklistSvc != nil {
+					dbFilter, err := brandBlocklistSvc.LoadBrandFilter(ctx, tenantID)
+					if err != nil {
+						slog.Warn("inngest: failed to load brand blocklist", "error", err)
+					} else {
+						config.Thresholds.BrandFilter.BlockList = append(
+							config.Thresholds.BrandFilter.BlockList,
+							dbFilter.BlockList...,
+						)
+					}
+				}
 				b, _ := json.Marshal(config)
 				return string(b), nil
 			})
@@ -105,28 +119,39 @@ func NewDurableRuntime(
 				return nil, err
 			}
 
-			// Step 3: Resolve sourcing data (SP-API + Exa — no LLM)
-			sourcingData, err := step.Run(ctx, "resolve-sourcing", func(ctx context.Context) (map[string]any, error) {
-				if toolResolver == nil {
-					return map[string]any{"criteria": campaign.Criteria}, nil
-				}
-				return toolResolver.ResolveForSourcing(ctx, campaign.Criteria)
-			})
-			if err != nil {
-				markFailed(ctx, campaigns, tenantID, campaignID)
-				return nil, err
-			}
-
-			// Step 4: Select candidates via sourcing agent (LLM)
-			candidatesJSON, err := step.Run(ctx, "select-candidates", func(ctx context.Context) (string, error) {
+			// Step 3: Discover and pre-qualify products (deterministic — no LLM)
+			candidatesJSON, err := step.Run(ctx, "discover-products", func(ctx context.Context) (string, error) {
 				var config domain.PipelineConfig
 				json.Unmarshal([]byte(configJSON), &config)
-				candidates, err := orchestrator.RunSourcingAgent(ctx, sourcingData, config)
-				if err != nil {
-					return "", err
+
+				if productDiscovery != nil {
+					products, err := productDiscovery.DiscoverAndPreQualify(ctx, campaign.Criteria, config.Thresholds)
+					if err != nil {
+						return "", err
+					}
+					var candidates []map[string]any
+					for _, p := range products {
+						candidates = append(candidates, p.ToCandidate())
+					}
+					b, _ := json.Marshal(candidates)
+					return string(b), nil
 				}
-				b, _ := json.Marshal(candidates)
-				return string(b), nil
+
+				// Fallback to old sourcing if no discovery service
+				if toolResolver != nil {
+					sourcingData, err := toolResolver.ResolveForSourcing(ctx, campaign.Criteria)
+					if err != nil {
+						return "", err
+					}
+					candidates, err := orchestrator.RunSourcingAgent(ctx, sourcingData, config)
+					if err != nil {
+						return "", err
+					}
+					b, _ := json.Marshal(candidates)
+					return string(b), nil
+				}
+
+				return "[]", nil
 			})
 			if err != nil {
 				markFailed(ctx, campaigns, tenantID, campaignID)
@@ -227,6 +252,12 @@ func NewDurableRuntime(
 				}
 				if config.Thresholds.MinSellerCount > 0 && sellerCount > 0 && sellerCount < config.Thresholds.MinSellerCount {
 					slog.Info("inngest: pre-gate eliminated (sellers)", "asin", asin, "sellers", sellerCount)
+					// Auto-learn: block this brand for future campaigns
+					brand, _ := enriched["brand"].(string)
+					if brand != "" && brandBlocklistSvc != nil {
+						brandBlocklistSvc.AutoBlock(ctx, tenantID, brand, asin,
+							fmt.Sprintf("Too few sellers (%d) — likely private label", sellerCount))
+					}
 					return false, nil
 				}
 
