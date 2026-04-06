@@ -2,6 +2,7 @@ package supabase
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 
@@ -34,14 +35,32 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 		return nil, fmt.Errorf("JWT secret not configured")
 	}
 
-	// Parse and validate the Supabase JWT
+	// Try parsing with HMAC (legacy Supabase secret)
+	// The secret may be base64-encoded or plain text
+	secretBytes := []byte(p.jwtSecret)
+
 	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); ok {
+			return secretBytes, nil
 		}
-		return []byte(p.jwtSecret), nil
+		return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 	})
+
+	// If HMAC failed, try with base64-decoded secret
 	if err != nil {
+		decoded, decErr := base64.StdEncoding.DecodeString(p.jwtSecret)
+		if decErr == nil {
+			parsed, err = jwt.Parse(token, func(t *jwt.Token) (any, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); ok {
+					return decoded, nil
+				}
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			})
+		}
+	}
+
+	if err != nil {
+		slog.Warn("JWT validation failed", "error", err.Error())
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
@@ -72,6 +91,8 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 	if r, ok := claims["role"].(string); ok && r == "member" {
 		role = domain.RoleMember
 	}
+
+	slog.Info("auth: token validated", "user_id", sub, "tenant_id", tenantID)
 
 	return &port.AuthContext{
 		UserID:   domain.UserID(sub),
