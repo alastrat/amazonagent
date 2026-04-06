@@ -131,6 +131,7 @@ func main() {
 		Event:          handler.NewEventHandler(eventSvc),
 		Dashboard:      handler.NewDashboardHandler(campaignSvc, dealSvc),
 		BrandBlocklist: handler.NewBrandBlocklistHandler(brandBlocklistSvc),
+		PriceList:      handler.NewPriceListHandler(service.NewPriceListScanner(spapiClient)),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)

@@ -18,6 +18,7 @@ type Handlers struct {
 	Event          *handler.EventHandler
 	Dashboard      *handler.DashboardHandler
 	BrandBlocklist *handler.BrandBlocklistHandler
+	PriceList      *handler.PriceListHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -60,6 +61,8 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Get("/events", h.Event.List)
 
 		r.Get("/dashboard/summary", h.Dashboard.Summary)
+
+		r.Post("/pricelist/upload", h.PriceList.Upload)
 
 		r.Get("/brand-blocklist", h.BrandBlocklist.List)
 		r.Post("/brand-blocklist", h.BrandBlocklist.Add)
