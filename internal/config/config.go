@@ -32,9 +32,10 @@ type Config struct {
 	SPAPIMarketplace  string
 	SPAPISellerID     string
 
-	ExaAPIKey       string
-	FirecrawlAPIKey string
-	OpenAIAPIKey    string
+	ExaAPIKey        string
+	FirecrawlAPIKey  string
+	OpenAIAPIKey     string
+	TelegramBotToken string
 }
 
 func Load() (*Config, error) {
@@ -67,9 +68,10 @@ func Load() (*Config, error) {
 		SPAPIMarketplace:  getEnv("SP_API_MARKETPLACE_ID", "ATVPDKIKX0DER"),
 		SPAPISellerID:     getEnvAny("AMAZON_MERCHANT_TOKEN", "AMAZON_SELLER_ID", "SP_API_SELLER_ID"),
 
-		ExaAPIKey:       getEnv("EXA_API_KEY", ""),
-		FirecrawlAPIKey: getEnv("FIRECRAWL_API_KEY", ""),
-		OpenAIAPIKey:    getEnv("OPENAI_API_KEY", ""),
+		ExaAPIKey:        getEnv("EXA_API_KEY", ""),
+		FirecrawlAPIKey:  getEnv("FIRECRAWL_API_KEY", ""),
+		OpenAIAPIKey:     getEnv("OPENAI_API_KEY", ""),
+		TelegramBotToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
 	}
 
 	return cfg, nil

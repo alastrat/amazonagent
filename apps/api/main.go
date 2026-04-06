@@ -20,6 +20,7 @@ import (
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/simulator"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/spapi"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/supabase"
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/telegram"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/handler"
 	"github.com/pluriza/fba-agent-orchestrator/internal/config"
@@ -69,7 +70,7 @@ func main() {
 	// Agent runtime: use simulator in dev, OpenFang in production
 	var agentRuntime port.AgentRuntime
 	if cfg.OpenFangAPIURL != "" {
-		agentRuntime = openfang.NewAgentRuntime(cfg.OpenFangAPIURL, cfg.OpenFangAPIKey)
+		agentRuntime = openfang.NewAgentRuntime(cfg.OpenFangAPIURL, cfg.OpenFangAPIKey, false)
 		slog.Info("using OpenFang agent runtime", "url", cfg.OpenFangAPIURL)
 	} else {
 		agentRuntime = simulator.NewAgentRuntime()
@@ -96,6 +97,8 @@ func main() {
 	brandRepo := postgres.NewBrandRepo(pool)
 	brandEligibilitySvc := service.NewBrandEligibilityService(brandRepo, spapiClient, 7*24*time.Hour)
 	productDiscovery := service.NewProductDiscovery(spapiClient, brandEligibilitySvc)
+	tenantSettingsRepo := postgres.NewTenantSettingsRepo(pool)
+	tenantSettingsSvc := service.NewTenantSettingsService(tenantSettingsRepo)
 
 	// Durable runtime (Inngest) — registers campaign + candidate functions
 	durableRuntime, err := inngest.NewDurableRuntime(
@@ -132,12 +135,22 @@ func main() {
 		Dashboard:      handler.NewDashboardHandler(campaignSvc, dealSvc),
 		BrandBlocklist: handler.NewBrandBlocklistHandler(brandBlocklistSvc),
 		PriceList:      handler.NewPriceListHandler(service.NewPriceListScanner(spapiClient)),
+		Settings:       handler.NewSettingsHandler(tenantSettingsSvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
 
 	// Mount Inngest handler — Inngest dev server calls this to execute functions
 	router.Mount("/api/inngest", durableRuntime.Handler())
+
+	// Telegram bot (if token configured)
+	if cfg.TelegramBotToken != "" {
+		devTenantID := domain.TenantID("00000000-0000-0000-0000-000000000010")
+		cmdHandler := telegram.NewCommandHandler(dealSvc, campaignSvc, brandBlocklistSvc, tenantSettingsSvc, devTenantID)
+		telegramBot := telegram.NewBot(cfg.TelegramBotToken, cmdHandler)
+		go telegramBot.StartPolling(ctx)
+		slog.Info("telegram bot started", "bot", "@amazonagent_bot")
+	}
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),

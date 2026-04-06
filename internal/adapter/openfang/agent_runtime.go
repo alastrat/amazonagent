@@ -17,20 +17,22 @@ import (
 // AgentRuntime implements port.AgentRuntime by calling OpenFang's HTTP API.
 // It spawns persistent agents on first use and reuses them across calls.
 type AgentRuntime struct {
-	apiURL     string
-	apiKey     string
-	httpClient *http.Client
+	apiURL        string
+	apiKey        string
+	memoryEnabled bool
+	httpClient    *http.Client
 
 	mu       sync.Mutex
 	agentIDs map[string]string // agentName -> OpenFang agent UUID
 }
 
-func NewAgentRuntime(apiURL, apiKey string) *AgentRuntime {
+func NewAgentRuntime(apiURL, apiKey string, memoryEnabled bool) *AgentRuntime {
 	return &AgentRuntime{
-		apiURL: apiURL,
-		apiKey: apiKey,
+		apiURL:        apiURL,
+		apiKey:        apiKey,
+		memoryEnabled: memoryEnabled,
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second, // LLM calls can be slow
+			Timeout: 120 * time.Second,
 		},
 		agentIDs: make(map[string]string),
 	}
@@ -44,6 +46,11 @@ func (r *AgentRuntime) RunAgent(ctx context.Context, task domain.AgentTask) (*do
 	agentID, err := r.getOrSpawnAgent(ctx, task.AgentName, task.SystemPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("get/spawn agent %q: %w", task.AgentName, err)
+	}
+
+	// Reset session if memory is disabled (prevents context accumulation)
+	if !r.memoryEnabled {
+		r.resetSession(ctx, agentID)
 	}
 
 	// Build the message to send
@@ -321,6 +328,18 @@ func parseAgentResponse(resp *messageResponse) (map[string]any, error) {
 	}
 
 	return nil, fmt.Errorf("no valid JSON found in response")
+}
+
+// resetSession clears the agent's conversation history to prevent memory accumulation.
+func (r *AgentRuntime) resetSession(ctx context.Context, agentID string) {
+	req, _ := http.NewRequestWithContext(ctx, "POST", r.apiURL+"/api/agents/"+agentID+"/session/reset", nil)
+	r.setHeaders(req)
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		slog.Debug("openfang: session reset failed", "agent_id", agentID, "error", err)
+		return
+	}
+	resp.Body.Close()
 }
 
 // extractJSON pulls JSON from markdown code blocks or raw text.
