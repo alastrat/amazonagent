@@ -1,0 +1,26 @@
+{
+  "name": "amazonagent-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "containers": [
+    {
+      "class_name": "APIContainer",
+      "image": "../../Dockerfile",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "API_CONTAINER",
+        "class_name": "APIContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["APIContainer"]
+    }
+  ]
+}
