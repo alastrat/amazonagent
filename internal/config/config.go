@@ -53,7 +53,7 @@ func Load() (*Config, error) {
 		DatabaseURL: dbURL,
 
 		SupabaseURL:            getEnv("SUPABASE_URL", ""),
-		SupabaseAnonKey:        getEnv("SUPABASE_ANON_KEY", ""),
+		SupabaseAnonKey:        getEnvAny("SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"),
 		SupabaseServiceRoleKey: getEnv("SUPABASE_SERVICE_ROLE_KEY", ""),
 		SupabaseJWTSecret:      getEnv("SUPABASE_JWT_SECRET", ""),
 
