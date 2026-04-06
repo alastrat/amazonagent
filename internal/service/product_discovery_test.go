@@ -76,3 +76,11 @@ func TestProductDiscovery_NilSearcher(t *testing.T) {
 		t.Error("expected nil results with nil searcher")
 	}
 }
+
+func (m *mockDiscoverySearcher) CheckListingEligibility(_ context.Context, asins []string, _ string) ([]port.ListingRestriction, error) {
+	var results []port.ListingRestriction
+	for _, asin := range asins {
+		results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+	}
+	return results, nil
+}

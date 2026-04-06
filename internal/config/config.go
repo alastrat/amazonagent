@@ -30,6 +30,7 @@ type Config struct {
 	SPAPIClientSecret string
 	SPAPIRefreshToken string
 	SPAPIMarketplace  string
+	SPAPISellerID     string
 
 	ExaAPIKey       string
 	FirecrawlAPIKey string
@@ -64,6 +65,7 @@ func Load() (*Config, error) {
 		SPAPIClientSecret: getEnvAny("SP_API_CLIENT_SECRET", "SP_API_LWA_CLIENT_SECRET"),
 		SPAPIRefreshToken: getEnvAny("SP_API_REFRESH_TOKEN"),
 		SPAPIMarketplace:  getEnv("SP_API_MARKETPLACE_ID", "ATVPDKIKX0DER"),
+		SPAPISellerID:     getEnvAny("AMAZON_MERCHANT_TOKEN", "AMAZON_SELLER_ID", "SP_API_SELLER_ID"),
 
 		ExaAPIKey:       getEnv("EXA_API_KEY", ""),
 		FirecrawlAPIKey: getEnv("FIRECRAWL_API_KEY", ""),

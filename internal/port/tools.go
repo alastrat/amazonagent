@@ -43,11 +43,19 @@ type ScrapedPage struct {
 	Content string `json:"content"`
 }
 
+// ListingRestriction describes why a product can't be listed
+type ListingRestriction struct {
+	ASIN    string `json:"asin"`
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason,omitempty"`
+}
+
 // ProductSearcher searches Amazon for products
 type ProductSearcher interface {
 	SearchProducts(ctx context.Context, keywords []string, marketplace string) ([]ProductSearchResult, error)
 	GetProductDetails(ctx context.Context, asins []string, marketplace string) ([]ProductSearchResult, error)
 	EstimateFees(ctx context.Context, asin string, price float64, marketplace string) (*ProductFeeEstimate, error)
+	CheckListingEligibility(ctx context.Context, asins []string, marketplace string) ([]ListingRestriction, error)
 }
 
 // WebSearcher searches the web for information

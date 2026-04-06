@@ -99,3 +99,11 @@ func TestToolResolver_NilProviders(t *testing.T) {
 		t.Error("expected criteria")
 	}
 }
+
+func (m *mockProductSearcher) CheckListingEligibility(_ context.Context, asins []string, _ string) ([]port.ListingRestriction, error) {
+	var results []port.ListingRestriction
+	for _, asin := range asins {
+		results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+	}
+	return results, nil
+}

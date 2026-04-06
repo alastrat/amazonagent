@@ -22,6 +22,7 @@ type Client struct {
 	clientSecret string
 	refreshToken string
 	marketplace  string
+	sellerID     string
 	httpClient   *http.Client
 
 	mu          sync.Mutex
@@ -29,12 +30,13 @@ type Client struct {
 	tokenExpiry time.Time
 }
 
-func NewClient(clientID, clientSecret, refreshToken, marketplace string) *Client {
+func NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID string) *Client {
 	return &Client{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		refreshToken: refreshToken,
 		marketplace:  marketplace,
+		sellerID:     sellerID,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -388,6 +390,58 @@ func (c *Client) EstimateFees(ctx context.Context, asin string, price float64, m
 	}
 	// TODO: implement real SP-API fee estimate endpoint
 	return mockFeeEstimate(asin, price), nil
+}
+
+func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, marketplace string) ([]port.ListingRestriction, error) {
+	if !c.IsConfigured() || c.sellerID == "" {
+		// No seller ID — can't check, assume all allowed
+		var results []port.ListingRestriction
+		for _, asin := range asins {
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+		}
+		return results, nil
+	}
+
+	var results []port.ListingRestriction
+	for _, asin := range asins {
+		endpoint := fmt.Sprintf("/listings/2021-08-01/restrictions?asin=%s&sellerId=%s&marketplaceIds=%s&conditionType=new_new&reasonLocale=en_US",
+			asin, c.sellerID, marketplaceID(marketplace))
+
+		resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+		if err != nil {
+			slog.Warn("sp-api: eligibility check failed", "asin", asin, "error", err)
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true}) // fail open
+			continue
+		}
+
+		var raw map[string]any
+		json.NewDecoder(resp.Body).Decode(&raw)
+		resp.Body.Close()
+
+		restrictions, _ := raw["restrictions"].([]any)
+		if len(restrictions) == 0 {
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+			slog.Debug("sp-api: eligible", "asin", asin)
+		} else {
+			// Extract reason
+			reason := "Restricted"
+			if r, ok := restrictions[0].(map[string]any); ok {
+				if reasons, ok := r["reasons"].([]any); ok {
+					for _, rr := range reasons {
+						if rm, ok := rr.(map[string]any); ok {
+							if msg, ok := rm["message"].(string); ok && msg != "" {
+								reason = msg
+							}
+						}
+					}
+				}
+			}
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: false, Reason: reason})
+			slog.Info("sp-api: not eligible", "asin", asin, "reason", reason)
+		}
+	}
+
+	return results, nil
 }
 
 func marketplaceID(marketplace string) string {

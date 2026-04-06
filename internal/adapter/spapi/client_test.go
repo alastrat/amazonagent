@@ -6,7 +6,7 @@ import (
 )
 
 func TestClient_SearchProducts_MockFallback(t *testing.T) {
-	client := NewClient("", "", "", "US")
+	client := NewClient("", "", "", "US", "")
 	if client.IsConfigured() {
 		t.Error("expected unconfigured client")
 	}
@@ -29,7 +29,7 @@ func TestClient_SearchProducts_MockFallback(t *testing.T) {
 }
 
 func TestClient_EstimateFees_MockFallback(t *testing.T) {
-	client := NewClient("", "", "", "US")
+	client := NewClient("", "", "", "US", "")
 	fees, err := client.EstimateFees(context.Background(), "B0TEST001", 25.00, "US")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

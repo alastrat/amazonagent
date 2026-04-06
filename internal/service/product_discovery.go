@@ -136,6 +136,37 @@ func (d *ProductDiscovery) DiscoverAndPreQualify(
 		})
 	}
 
+	// Check listing eligibility for qualified candidates (SP-API restrictions)
+	if len(qualified) > 0 {
+		var checkASINs []string
+		for _, q := range qualified {
+			checkASINs = append(checkASINs, q.ASIN)
+		}
+		restrictions, err := d.products.CheckListingEligibility(ctx, checkASINs, criteria.Marketplace)
+		if err != nil {
+			slog.Warn("product-discovery: eligibility check failed, keeping all", "error", err)
+		} else {
+			restrictedSet := make(map[string]string)
+			for _, r := range restrictions {
+				if !r.Allowed {
+					restrictedSet[r.ASIN] = r.Reason
+				}
+			}
+			if len(restrictedSet) > 0 {
+				var eligible []DiscoveredProduct
+				for _, q := range qualified {
+					if reason, blocked := restrictedSet[q.ASIN]; blocked {
+						slog.Info("product-discovery: eliminated (listing restricted)", "asin", q.ASIN, "brand", q.Brand, "reason", reason)
+						eliminated++
+					} else {
+						eligible = append(eligible, q)
+					}
+				}
+				qualified = eligible
+			}
+		}
+	}
+
 	// Sort by BSR (lower = better)
 	sort.Slice(qualified, func(i, j int) bool {
 		if qualified[i].BSRRank > 0 && qualified[j].BSRRank > 0 {

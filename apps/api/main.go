@@ -80,7 +80,7 @@ func main() {
 	idGen := port.UUIDGenerator{}
 
 	// Tool clients (pre-resolve external data for agents)
-	spapiClient := spapi.NewClient(cfg.SPAPIClientID, cfg.SPAPIClientSecret, cfg.SPAPIRefreshToken, cfg.SPAPIMarketplace)
+	spapiClient := spapi.NewClient(cfg.SPAPIClientID, cfg.SPAPIClientSecret, cfg.SPAPIRefreshToken, cfg.SPAPIMarketplace, cfg.SPAPISellerID)
 	exaClient := exa.NewClient(cfg.ExaAPIKey)
 	firecrawlClient := firecrawl.NewClient(cfg.FirecrawlAPIKey)
 	toolResolver := service.NewToolResolver(spapiClient, exaClient, firecrawlClient)
