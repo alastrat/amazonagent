@@ -42,10 +42,15 @@ func Load() (*Config, error) {
 	port, _ := strconv.Atoi(getEnv("PORT", "8080"))
 	inngestDev, _ := strconv.ParseBool(getEnv("INNGEST_DEV", "true"))
 
+	dbURL, err := mustEnv("DATABASE_URL")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Port:        port,
 		Env:         getEnv("ENV", "development"),
-		DatabaseURL: mustEnv("DATABASE_URL"),
+		DatabaseURL: dbURL,
 
 		SupabaseURL:            getEnv("SUPABASE_URL", ""),
 		SupabaseAnonKey:        getEnv("SUPABASE_ANON_KEY", ""),
@@ -98,10 +103,10 @@ func getEnvAny(keys ...string) string {
 	return ""
 }
 
-func mustEnv(key string) string {
+func mustEnv(key string) (string, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		panic(fmt.Sprintf("required env var %s is not set", key))
+		return "", fmt.Errorf("required env var %s is not set", key)
 	}
-	return v
+	return v, nil
 }

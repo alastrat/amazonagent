@@ -35,11 +35,15 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	slog.Info("fba-agent-orchestrator starting")
+
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	slog.Info("config loaded", "env", cfg.Env, "port", cfg.Port)
 
 	ctx := context.Background()
 
