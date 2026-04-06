@@ -100,18 +100,26 @@ func main() {
 	tenantSettingsRepo := postgres.NewTenantSettingsRepo(pool)
 	tenantSettingsSvc := service.NewTenantSettingsService(tenantSettingsRepo)
 
-	// Durable runtime (Inngest) — registers campaign + candidate functions
-	durableRuntime, err := inngest.NewDurableRuntime(
+	// Durable runtime (Inngest) — optional, falls back to goroutine if unavailable
+	var durableRuntime *inngest.DurableRuntime
+	inngestRuntime, err := inngest.NewDurableRuntime(
 		pipelineSvc, orchestrator, toolResolver,
 		productDiscovery, brandBlocklistSvc,
 		campaignRepo, scoringRepo, dealSvc,
 	)
 	if err != nil {
-		slog.Error("failed to create inngest runtime", "error", err)
-		os.Exit(1)
+		slog.Warn("inngest not available, using goroutine fallback", "error", err)
+	} else {
+		durableRuntime = inngestRuntime
 	}
 
-	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, nil, idGen)
+	// If Inngest is unavailable, pass pipeline for goroutine fallback
+	var fallbackPipeline *service.PipelineService
+	if durableRuntime == nil {
+		fallbackPipeline = pipelineSvc
+	}
+
+	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, fallbackPipeline, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
 
 	// Seed default scoring config for dev tenant
@@ -140,8 +148,10 @@ func main() {
 
 	router := api.NewRouter(handlers, authProvider, idGen)
 
-	// Mount Inngest handler — Inngest dev server calls this to execute functions
-	router.Mount("/api/inngest", durableRuntime.Handler())
+	// Mount Inngest handler (if available)
+	if durableRuntime != nil {
+		router.Mount("/api/inngest", durableRuntime.Handler())
+	}
 
 	// Telegram bot (if token configured)
 	if cfg.TelegramBotToken != "" {
