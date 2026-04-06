@@ -56,6 +56,7 @@ type ProductSearcher interface {
 	GetProductDetails(ctx context.Context, asins []string, marketplace string) ([]ProductSearchResult, error)
 	EstimateFees(ctx context.Context, asin string, price float64, marketplace string) (*ProductFeeEstimate, error)
 	CheckListingEligibility(ctx context.Context, asins []string, marketplace string) ([]ListingRestriction, error)
+	LookupByIdentifier(ctx context.Context, identifiers []string, idType string, marketplace string) ([]ProductSearchResult, error)
 }
 
 // WebSearcher searches the web for information

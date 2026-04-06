@@ -100,6 +100,10 @@ func TestToolResolver_NilProviders(t *testing.T) {
 	}
 }
 
+func (m *mockProductSearcher) LookupByIdentifier(_ context.Context, _ []string, _ string, _ string) ([]port.ProductSearchResult, error) {
+	return nil, nil
+}
+
 func (m *mockProductSearcher) CheckListingEligibility(_ context.Context, asins []string, _ string) ([]port.ListingRestriction, error) {
 	var results []port.ListingRestriction
 	for _, asin := range asins {

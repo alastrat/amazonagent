@@ -77,6 +77,10 @@ func TestProductDiscovery_NilSearcher(t *testing.T) {
 	}
 }
 
+func (m *mockDiscoverySearcher) LookupByIdentifier(_ context.Context, _ []string, _ string, _ string) ([]port.ProductSearchResult, error) {
+	return nil, nil
+}
+
 func (m *mockDiscoverySearcher) CheckListingEligibility(_ context.Context, asins []string, _ string) ([]port.ListingRestriction, error) {
 	var results []port.ListingRestriction
 	for _, asin := range asins {

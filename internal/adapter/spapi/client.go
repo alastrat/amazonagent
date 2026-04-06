@@ -444,6 +444,114 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 	return results, nil
 }
 
+func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, idType string, marketplace string) ([]port.ProductSearchResult, error) {
+	if !c.IsConfigured() {
+		slog.Warn("sp-api: not configured, returning mock identifier lookup")
+		return mockIdentifierLookup(identifiers, idType), nil
+	}
+
+	// SP-API catalog items endpoint accepts up to 20 identifiers per request
+	var allProducts []port.ProductSearchResult
+	for i := 0; i < len(identifiers); i += 20 {
+		end := i + 20
+		if end > len(identifiers) {
+			end = len(identifiers)
+		}
+		batch := identifiers[i:end]
+
+		idParam := strings.Join(batch, ",")
+		endpoint := fmt.Sprintf("/catalog/2022-04-01/items?marketplaceIds=%s&identifiers=%s&identifiersType=%s&pageSize=20&includedData=summaries,salesRanks,attributes",
+			marketplaceID(marketplace), url.QueryEscape(idParam), url.QueryEscape(idType))
+
+		resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+		if err != nil {
+			slog.Warn("sp-api: identifier lookup failed", "error", err)
+			continue
+		}
+
+		var raw map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		items, _ := raw["items"].([]any)
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			p := port.ProductSearchResult{}
+			p.ASIN, _ = item["asin"].(string)
+			if p.ASIN == "" {
+				continue
+			}
+
+			if summaries, ok := item["summaries"].([]any); ok && len(summaries) > 0 {
+				if s, ok := summaries[0].(map[string]any); ok {
+					p.Title, _ = s["itemName"].(string)
+					p.Brand, _ = s["brandName"].(string)
+				}
+			}
+
+			if ranks, ok := item["salesRanks"].([]any); ok {
+				for _, rawRank := range ranks {
+					if r, ok := rawRank.(map[string]any); ok {
+						if classRanks, ok := r["classificationRanks"].([]any); ok && len(classRanks) > 0 {
+							if cr, ok := classRanks[0].(map[string]any); ok {
+								if rank, ok := cr["rank"].(float64); ok {
+									p.BSRRank = int(rank)
+								}
+								p.BSRCategory, _ = cr["title"].(string)
+							}
+						}
+					}
+				}
+			}
+
+			allProducts = append(allProducts, p)
+		}
+	}
+
+	// Enrich with pricing data
+	c.enrichPricing(ctx, allProducts, marketplace)
+
+	slog.Info("sp-api: identifier lookup complete", "identifiers", len(identifiers), "results", len(allProducts))
+	return allProducts, nil
+}
+
+func mockIdentifierLookup(identifiers []string, _ string) []port.ProductSearchResult {
+	// Return mock matches for roughly half of the identifiers
+	var results []port.ProductSearchResult
+	mockProducts := []struct {
+		title string
+		brand string
+		price float64
+		bsr   int
+	}{
+		{"Premium Kitchen Knife Set", "ChefMaster", 34.99, 2500},
+		{"Organic Green Tea 100pk", "TeaLeaf", 18.99, 8200},
+		{"Wireless Mouse Ergonomic", "TechGrip", 22.99, 4100},
+		{"Yoga Mat Extra Thick", "FlexFit", 28.99, 3300},
+	}
+	for i, id := range identifiers {
+		if i%2 == 0 && i/2 < len(mockProducts) {
+			mp := mockProducts[i/2]
+			results = append(results, port.ProductSearchResult{
+				ASIN:        fmt.Sprintf("B0MOCK%s", id[len(id)-4:]),
+				Title:       mp.title,
+				Brand:       mp.brand,
+				AmazonPrice: mp.price,
+				BSRRank:     mp.bsr,
+				SellerCount: 5 + rand.Intn(10),
+			})
+		}
+	}
+	return results
+}
+
 func marketplaceID(marketplace string) string {
 	switch marketplace {
 	case "US":
