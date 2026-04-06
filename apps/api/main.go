@@ -30,14 +30,10 @@ import (
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "fba-agent-orchestrator: process starting")
-
 	_ = godotenv.Load()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
-
-	slog.Info("fba-agent-orchestrator starting")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -45,24 +41,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("config loaded", "env", cfg.Env, "port", cfg.Port)
+	slog.Info("starting", "env", cfg.Env, "port", cfg.Port)
 
 	ctx := context.Background()
 
 	// Database
-	// Mask password in URL for logging
-	dbHost := cfg.DatabaseURL
-	if len(dbHost) > 30 {
-		dbHost = dbHost[:30] + "..."
-	}
-	fmt.Fprintf(os.Stderr, "connecting to database: %s\n", dbHost)
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "DATABASE CONNECTION FAILED: %v\n", err)
 		slog.Error("failed to connect to database", "error", err.Error())
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "database connected successfully")
 	defer pool.Close()
 
 	if err := postgres.RunMigrations(ctx, pool); err != nil {
