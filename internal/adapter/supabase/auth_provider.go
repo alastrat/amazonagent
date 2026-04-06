@@ -35,10 +35,24 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 		return nil, fmt.Errorf("JWT secret not configured")
 	}
 
-	// Try parsing with HMAC (legacy Supabase secret)
-	// The secret may be base64-encoded or plain text
-	secretBytes := []byte(p.jwtSecret)
+	// First, peek at the token to see algorithm and claims (without verification)
+	parser := jwt.NewParser()
+	unverified, _, err := parser.ParseUnverified(token, jwt.MapClaims{})
+	if err != nil {
+		slog.Warn("auth: cannot parse token", "error", err.Error())
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
 
+	alg := "unknown"
+	if unverified.Header != nil {
+		if a, ok := unverified.Header["alg"].(string); ok {
+			alg = a
+		}
+	}
+	slog.Info("auth: token algorithm", "alg", alg, "secret_len", len(p.jwtSecret))
+
+	// Try HMAC verification with raw secret
+	secretBytes := []byte(p.jwtSecret)
 	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); ok {
 			return secretBytes, nil
@@ -46,8 +60,9 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 		return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 	})
 
-	// If HMAC failed, try with base64-decoded secret
+	// If failed, try with base64-decoded secret
 	if err != nil {
+		slog.Warn("auth: HMAC raw failed", "error", err.Error())
 		decoded, decErr := base64.StdEncoding.DecodeString(p.jwtSecret)
 		if decErr == nil {
 			parsed, err = jwt.Parse(token, func(t *jwt.Token) (any, error) {
@@ -56,11 +71,13 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 				}
 				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 			})
+			if err != nil {
+				slog.Warn("auth: HMAC base64 failed", "error", err.Error())
+			}
 		}
 	}
 
 	if err != nil {
-		slog.Warn("JWT validation failed", "error", err.Error())
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
@@ -69,20 +86,15 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 		return nil, fmt.Errorf("invalid token claims")
 	}
 
-	// Extract user ID from "sub" claim (standard Supabase JWT)
 	sub, _ := claims["sub"].(string)
 	if sub == "" {
 		return nil, fmt.Errorf("missing sub claim")
 	}
 
-	// Supabase stores metadata in app_metadata or user_metadata
-	// For multi-tenant, tenant_id should be in app_metadata
 	tenantID := ""
 	if appMeta, ok := claims["app_metadata"].(map[string]any); ok {
 		tenantID, _ = appMeta["tenant_id"].(string)
 	}
-
-	// Fallback: single-tenant mode uses a default tenant ID
 	if tenantID == "" {
 		tenantID = "00000000-0000-0000-0000-000000000010"
 	}
