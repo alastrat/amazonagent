@@ -66,7 +66,7 @@ func main() {
 	discoveryRepo := postgres.NewDiscoveryConfigRepo(pool)
 
 	// Adapters
-	authProvider := supabase.NewAuthProviderWithURL(cfg.SupabaseJWTSecret, cfg.SupabaseURL, cfg.IsDev())
+	authProvider := supabase.NewAuthProviderWithURL(cfg.SupabaseJWTSecret, cfg.SupabaseURL, cfg.SupabaseAnonKey, cfg.IsDev())
 	analyticsProvider := posthog.NewAnalyticsProvider(cfg.PostHogAPIKey, cfg.PostHogHost, cfg.IsDev())
 
 	// Agent runtime: use simulator in dev, OpenFang in production

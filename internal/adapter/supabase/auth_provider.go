@@ -2,9 +2,13 @@ package supabase
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -13,36 +17,64 @@ import (
 )
 
 type AuthProvider struct {
-	jwtSecret  string
-	supabaseURL string
-	isDev      bool
-	jwks       keyfunc.Keyfunc
+	jwtSecret string
+	isDev     bool
+	jwks      keyfunc.Keyfunc
 }
 
 func NewAuthProvider(jwtSecret string, isDev bool) *AuthProvider {
 	return &AuthProvider{jwtSecret: jwtSecret, isDev: isDev}
 }
 
-func NewAuthProviderWithURL(jwtSecret, supabaseURL string, isDev bool) *AuthProvider {
-	p := &AuthProvider{jwtSecret: jwtSecret, supabaseURL: supabaseURL, isDev: isDev}
+func NewAuthProviderWithURL(jwtSecret, supabaseURL, supabaseAnonKey string, isDev bool) *AuthProvider {
+	p := &AuthProvider{jwtSecret: jwtSecret, isDev: isDev}
 
-	// Initialize JWKS for ES256 verification
-	if supabaseURL != "" {
+	if supabaseURL != "" && supabaseAnonKey != "" {
 		jwksURL := strings.TrimSuffix(supabaseURL, "/") + "/auth/v1/.well-known/jwks"
-		jwks, err := keyfunc.NewDefault([]string{jwksURL})
+		jwksJSON, err := fetchJWKS(jwksURL, supabaseAnonKey)
 		if err != nil {
-			slog.Warn("auth: failed to init JWKS, falling back to HMAC only", "error", err.Error())
+			slog.Warn("auth: failed to fetch JWKS", "error", err.Error())
 		} else {
-			p.jwks = jwks
-			slog.Info("auth: JWKS initialized", "url", jwksURL)
+			jwks, err := keyfunc.NewJWKSetJSON(jwksJSON)
+			if err != nil {
+				slog.Warn("auth: failed to parse JWKS", "error", err.Error())
+			} else {
+				p.jwks = jwks
+				slog.Info("auth: JWKS initialized for ES256 verification")
+			}
 		}
 	}
 
 	return p
 }
 
+func fetchJWKS(url, apiKey string) (json.RawMessage, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("apikey", apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("JWKS fetch failed: status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.RawMessage(body), nil
+}
+
 func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.AuthContext, error) {
-	// Dev mode: accept dev-* tokens for local development
 	if p.isDev && len(token) > 4 && token[:4] == "dev-" {
 		slog.Debug("using dev auth mode")
 		return &port.AuthContext{
@@ -52,16 +84,16 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 		}, nil
 	}
 
-	// Try JWKS verification first (ES256 — new Supabase signing keys)
+	// Try JWKS verification first (ES256)
 	if p.jwks != nil {
 		parsed, err := jwt.Parse(token, p.jwks.KeyfuncCtx(ctx))
 		if err == nil {
 			return p.extractClaims(parsed)
 		}
-		slog.Debug("auth: JWKS verification failed, trying HMAC", "error", err.Error())
+		slog.Debug("auth: JWKS verification failed", "error", err.Error())
 	}
 
-	// Fallback: HMAC verification with legacy secret
+	// Fallback: HMAC with legacy secret
 	if p.jwtSecret != "" {
 		parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); ok {
@@ -72,7 +104,6 @@ func (p *AuthProvider) ValidateToken(ctx context.Context, token string) (*port.A
 		if err == nil {
 			return p.extractClaims(parsed)
 		}
-		slog.Debug("auth: HMAC verification failed", "error", err.Error())
 	}
 
 	return nil, fmt.Errorf("invalid token")
@@ -102,7 +133,7 @@ func (p *AuthProvider) extractClaims(parsed *jwt.Token) (*port.AuthContext, erro
 		role = domain.RoleMember
 	}
 
-	slog.Info("auth: token validated", "user_id", sub, "tenant_id", tenantID)
+	slog.Info("auth: token validated", "user_id", sub)
 
 	return &port.AuthContext{
 		UserID:   domain.UserID(sub),
