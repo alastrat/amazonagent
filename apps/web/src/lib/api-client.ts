@@ -13,8 +13,7 @@ import type {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
 
 class ApiClient {
-  // Default to dev token for local development — replaced by real Supabase auth in production
-  private token: string | null = "dev-user-dev-tenant";
+  private token: string | null = null;
 
   setToken(token: string) {
     this.token = token;
