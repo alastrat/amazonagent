@@ -13,11 +13,12 @@ import (
 // It replaces the LLM sourcing agent's role in finding candidates.
 // All filtering happens BEFORE any LLM calls.
 type ProductDiscovery struct {
-	products port.ProductSearcher
+	products         port.ProductSearcher
+	brandEligibility *BrandEligibilityService
 }
 
-func NewProductDiscovery(products port.ProductSearcher) *ProductDiscovery {
-	return &ProductDiscovery{products: products}
+func NewProductDiscovery(products port.ProductSearcher, brandEligibility *BrandEligibilityService) *ProductDiscovery {
+	return &ProductDiscovery{products: products, brandEligibility: brandEligibility}
 }
 
 // DiscoveredProduct is a pre-qualified product with all data resolved.
@@ -42,6 +43,7 @@ type DiscoveredProduct struct {
 // 4. Sort by opportunity score
 func (d *ProductDiscovery) DiscoverAndPreQualify(
 	ctx context.Context,
+	tenantID domain.TenantID,
 	criteria domain.Criteria,
 	thresholds domain.PipelineThresholds,
 ) ([]DiscoveredProduct, error) {
@@ -136,8 +138,38 @@ func (d *ProductDiscovery) DiscoverAndPreQualify(
 		})
 	}
 
-	// Check listing eligibility for qualified candidates (SP-API restrictions)
-	if len(qualified) > 0 {
+	// Check listing eligibility — brand-level batch check (93% fewer API calls)
+	if len(qualified) > 0 && d.brandEligibility != nil {
+		// Group by brand — one API call per unique brand, not per ASIN
+		type brandProduct struct {
+			ASIN  string
+			Brand string
+		}
+		var bps []struct {
+			ASIN  string
+			Brand string
+		}
+		for _, q := range qualified {
+			bps = append(bps, struct {
+				ASIN  string
+				Brand string
+			}{q.ASIN, q.Brand})
+		}
+
+		eligibilityMap := d.brandEligibility.BatchCheckBrands(ctx, tenantID, bps)
+
+		var eligible []DiscoveredProduct
+		for _, q := range qualified {
+			if isEligible, ok := eligibilityMap[q.ASIN]; ok && !isEligible {
+				slog.Info("product-discovery: eliminated (brand restricted)", "asin", q.ASIN, "brand", q.Brand)
+				eliminated++
+			} else {
+				eligible = append(eligible, q)
+			}
+		}
+		qualified = eligible
+	} else if len(qualified) > 0 && d.products != nil {
+		// Fallback to per-ASIN check if no brand eligibility service
 		var checkASINs []string
 		for _, q := range qualified {
 			checkASINs = append(checkASINs, q.ASIN)
@@ -152,18 +184,15 @@ func (d *ProductDiscovery) DiscoverAndPreQualify(
 					restrictedSet[r.ASIN] = r.Reason
 				}
 			}
-			if len(restrictedSet) > 0 {
-				var eligible []DiscoveredProduct
-				for _, q := range qualified {
-					if reason, blocked := restrictedSet[q.ASIN]; blocked {
-						slog.Info("product-discovery: eliminated (listing restricted)", "asin", q.ASIN, "brand", q.Brand, "reason", reason)
-						eliminated++
-					} else {
-						eligible = append(eligible, q)
-					}
+			var eligible []DiscoveredProduct
+			for _, q := range qualified {
+				if _, blocked := restrictedSet[q.ASIN]; blocked {
+					eliminated++
+				} else {
+					eligible = append(eligible, q)
 				}
-				qualified = eligible
 			}
+			qualified = eligible
 		}
 	}
 

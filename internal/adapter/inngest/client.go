@@ -125,7 +125,7 @@ func NewDurableRuntime(
 				json.Unmarshal([]byte(configJSON), &config)
 
 				if productDiscovery != nil {
-					products, err := productDiscovery.DiscoverAndPreQualify(ctx, campaign.Criteria, config.Thresholds)
+					products, err := productDiscovery.DiscoverAndPreQualify(ctx, tenantID, campaign.Criteria, config.Thresholds)
 					if err != nil {
 						return "", err
 					}

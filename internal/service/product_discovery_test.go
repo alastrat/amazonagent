@@ -30,7 +30,7 @@ func (m *mockDiscoverySearcher) EstimateFees(_ context.Context, _ string, _ floa
 }
 
 func TestProductDiscovery_PreQualification(t *testing.T) {
-	discovery := service.NewProductDiscovery(&mockDiscoverySearcher{})
+	discovery := service.NewProductDiscovery(&mockDiscoverySearcher{}, nil)
 
 	thresholds := domain.DefaultPipelineThresholds()
 	thresholds.MinSellerCount = 3
@@ -39,7 +39,7 @@ func TestProductDiscovery_PreQualification(t *testing.T) {
 		BlockList: []string{"BlockedCo"},
 	}
 
-	results, err := discovery.DiscoverAndPreQualify(context.Background(), domain.Criteria{
+	results, err := discovery.DiscoverAndPreQualify(context.Background(), "test-tenant", domain.Criteria{
 		Keywords: []string{"test"}, Marketplace: "US",
 	}, thresholds)
 	if err != nil {
@@ -67,8 +67,8 @@ func TestProductDiscovery_PreQualification(t *testing.T) {
 }
 
 func TestProductDiscovery_NilSearcher(t *testing.T) {
-	discovery := service.NewProductDiscovery(nil)
-	results, err := discovery.DiscoverAndPreQualify(context.Background(), domain.Criteria{}, domain.DefaultPipelineThresholds())
+	discovery := service.NewProductDiscovery(nil, nil)
+	results, err := discovery.DiscoverAndPreQualify(context.Background(), "test-tenant", domain.Criteria{}, domain.DefaultPipelineThresholds())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

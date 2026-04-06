@@ -93,7 +93,9 @@ func main() {
 	pipelineSvc := service.NewPipelineService(orchestrator, campaignRepo, scoringRepo, dealSvc)
 	brandBlocklistRepo := postgres.NewBrandBlocklistRepo(pool)
 	brandBlocklistSvc := service.NewBrandBlocklistService(brandBlocklistRepo, idGen)
-	productDiscovery := service.NewProductDiscovery(spapiClient)
+	brandRepo := postgres.NewBrandRepo(pool)
+	brandEligibilitySvc := service.NewBrandEligibilityService(brandRepo, spapiClient, 7*24*time.Hour)
+	productDiscovery := service.NewProductDiscovery(spapiClient, brandEligibilitySvc)
 
 	// Durable runtime (Inngest) — registers campaign + candidate functions
 	durableRuntime, err := inngest.NewDurableRuntime(
