@@ -101,11 +101,13 @@ func (d *ProductDiscovery) DiscoverAndPreQualify(
 		}
 
 		if thresholds.MinSellerCount > 0 && p.SellerCount > 0 && p.SellerCount < thresholds.MinSellerCount {
+			slog.Info("product-discovery: eliminated (seller count)", "asin", p.ASIN, "sellers", p.SellerCount, "min", thresholds.MinSellerCount)
 			eliminated++
 			continue
 		}
 
 		if !thresholds.BrandFilter.IsBrandAllowed(p.Brand) {
+			slog.Info("product-discovery: eliminated (brand filter)", "asin", p.ASIN, "brand", p.Brand)
 			eliminated++
 			continue
 		}
@@ -118,6 +120,7 @@ func (d *ProductDiscovery) DiscoverAndPreQualify(
 			marginPct = fbaCalc.NetMarginPct
 
 			if thresholds.MinMarginPct > 0 && marginPct < thresholds.MinMarginPct {
+				slog.Info("product-discovery: eliminated (margin)", "asin", p.ASIN, "price", p.AmazonPrice, "margin_pct", marginPct, "min", thresholds.MinMarginPct)
 				eliminated++
 				continue
 			}

@@ -84,8 +84,8 @@ const (
 
 func DefaultPipelineThresholds() PipelineThresholds {
 	return PipelineThresholds{
-		MinMarginPct:         15.0,
-		MinSellerCount:       3,
+		MinMarginPct:         10.0,
+		MinSellerCount:       1,
 		RiskMaxScore:         7,
 		TierA:                8.0,
 		TierB:                6.5,
