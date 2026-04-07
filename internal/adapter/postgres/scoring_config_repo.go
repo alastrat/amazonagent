@@ -23,8 +23,8 @@ func (r *ScoringConfigRepo) Create(ctx context.Context, sc *domain.ScoringConfig
 
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO scoring_configs (id, tenant_id, version, weights, thresholds, created_by, active, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, sc.ID, sc.TenantID, sc.Version, weights, thresholds, sc.CreatedBy, sc.Active, sc.CreatedAt)
+		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
+	`, sc.ID, sc.TenantID, sc.Version, string(weights), string(thresholds), sc.CreatedBy, sc.Active, sc.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert scoring config: %w", err)
 	}
