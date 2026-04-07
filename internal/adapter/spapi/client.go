@@ -24,6 +24,7 @@ type Client struct {
 	marketplace  string
 	sellerID     string
 	httpClient   *http.Client
+	rateLimiter  *AdaptiveRateLimiter
 
 	mu          sync.Mutex
 	accessToken string
@@ -38,6 +39,7 @@ func NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID strin
 		marketplace:  marketplace,
 		sellerID:     sellerID,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		rateLimiter:  NewAdaptiveRateLimiter(),
 	}
 }
 
@@ -93,6 +95,17 @@ func (c *Client) getAccessToken(ctx context.Context) (string, error) {
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, endpoint string, body io.Reader) (*http.Response, error) {
+	return c.apiRequestWithRL(ctx, method, endpoint, body, "")
+}
+
+func (c *Client) apiRequestWithRL(ctx context.Context, method, endpoint string, body io.Reader, rlEndpoint string) (*http.Response, error) {
+	// Apply rate limiting if endpoint category is specified
+	if rlEndpoint != "" && c.rateLimiter != nil {
+		if err := c.rateLimiter.Wait(ctx, rlEndpoint); err != nil {
+			return nil, fmt.Errorf("rate limiter: %w", err)
+		}
+	}
+
 	token, err := c.getAccessToken(ctx)
 	if err != nil {
 		return nil, err
@@ -110,7 +123,17 @@ func (c *Client) apiRequest(ctx context.Context, method, endpoint string, body i
 	req.Header.Set("x-amz-access-token", token)
 	req.Header.Set("Content-Type", "application/json")
 
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Report throttling to adaptive rate limiter
+	if resp.StatusCode == 429 && rlEndpoint != "" && c.rateLimiter != nil {
+		c.rateLimiter.ReportThrottle(rlEndpoint)
+	}
+
+	return resp, nil
 }
 
 func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketplace string) ([]port.ProductSearchResult, error) {
@@ -123,7 +146,7 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 	endpoint := fmt.Sprintf("/catalog/2022-04-01/items?marketplaceIds=%s&keywords=%s&pageSize=20&includedData=summaries,salesRanks,attributes",
 		marketplaceID(marketplace), url.QueryEscape(query))
 
-	resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+	resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "catalog_search")
 	if err != nil {
 		return nil, fmt.Errorf("search products: %w", err)
 	}
@@ -216,6 +239,105 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 	return products, nil
 }
 
+// SearchByBrowseNode searches for products in a specific Amazon browse node (category).
+// Returns up to 20 products per call. Use pageToken for pagination (max ~10 pages = 200 products).
+// Returns: products, nextPageToken (empty if no more pages), error.
+func (c *Client) SearchByBrowseNode(ctx context.Context, nodeID string, marketplace string, pageToken string) ([]port.ProductSearchResult, string, error) {
+	if !c.IsConfigured() {
+		slog.Warn("sp-api: not configured, returning mock browse node data")
+		return mockProductSearch([]string{"browse-" + nodeID}), "", nil
+	}
+
+	endpoint := fmt.Sprintf("/catalog/2022-04-01/items?marketplaceIds=%s&classificationIds=%s&pageSize=20&includedData=summaries,salesRanks,dimensions,identifiers",
+		marketplaceID(marketplace), url.QueryEscape(nodeID))
+	if pageToken != "" {
+		endpoint += "&pageToken=" + url.QueryEscape(pageToken)
+	}
+
+	resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "catalog_search")
+	if err != nil {
+		return nil, "", fmt.Errorf("browse node search: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("browse node search failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var raw map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, "", fmt.Errorf("decode response: %w", err)
+	}
+
+	var products []port.ProductSearchResult
+	items, _ := raw["items"].([]any)
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		p := port.ProductSearchResult{}
+		p.ASIN, _ = item["asin"].(string)
+		if p.ASIN == "" {
+			continue
+		}
+
+		if summaries, ok := item["summaries"].([]any); ok && len(summaries) > 0 {
+			if s, ok := summaries[0].(map[string]any); ok {
+				p.Title, _ = s["itemName"].(string)
+				p.Brand, _ = s["brandName"].(string)
+				switch cls := s["itemClassification"].(type) {
+				case string:
+					p.Category = cls
+				case map[string]any:
+					p.Category, _ = cls["displayName"].(string)
+				}
+			}
+		}
+
+		if ranks, ok := item["salesRanks"].([]any); ok {
+			for _, rawRank := range ranks {
+				if r, ok := rawRank.(map[string]any); ok {
+					if classRanks, ok := r["classificationRanks"].([]any); ok && len(classRanks) > 0 {
+						if cr, ok := classRanks[0].(map[string]any); ok {
+							if rank, ok := cr["rank"].(float64); ok {
+								p.BSRRank = int(rank)
+							}
+							p.BSRCategory, _ = cr["title"].(string)
+						}
+					}
+				}
+			}
+		}
+
+		if attrs, ok := item["attributes"].(map[string]any); ok {
+			if listPrice, ok := attrs["list_price"].([]any); ok && len(listPrice) > 0 {
+				if lp, ok := listPrice[0].(map[string]any); ok {
+					if amount, ok := lp["value"].(float64); ok {
+						p.AmazonPrice = amount
+					}
+				}
+			}
+		}
+
+		products = append(products, p)
+	}
+
+	// Extract next page token
+	nextPageToken := ""
+	if pagination, ok := raw["pagination"].(map[string]any); ok {
+		nextPageToken, _ = pagination["nextToken"].(string)
+	}
+
+	// Enrich with pricing
+	c.enrichPricing(ctx, products, marketplace)
+
+	slog.Info("sp-api: browse node search complete", "node", nodeID, "results", len(products), "has_next", nextPageToken != "")
+	return products, nextPageToken, nil
+}
+
 // enrichPricing calls the SP-API competitive pricing endpoint to get real prices.
 func (c *Client) enrichPricing(ctx context.Context, products []port.ProductSearchResult, marketplace string) {
 	// Batch ASINs that need pricing (max 20 per request)
@@ -237,7 +359,7 @@ func (c *Client) enrichPricing(ctx context.Context, products []port.ProductSearc
 	endpoint := fmt.Sprintf("/products/pricing/v0/competitivePrice?MarketplaceId=%s&Asins=%s&ItemType=Asin",
 		marketplaceID(marketplace), asinParam)
 
-	resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+	resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "competitive_pricing")
 	if err != nil {
 		slog.Warn("sp-api: competitive pricing request failed", "error", err)
 		return
@@ -317,7 +439,7 @@ func (c *Client) GetProductDetails(ctx context.Context, asins []string, marketpl
 	endpoint := fmt.Sprintf("/products/pricing/v0/competitivePrice?MarketplaceId=%s&Asins=%s&ItemType=Asin",
 		marketplaceID(marketplace), asinParam)
 
-	resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+	resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "competitive_pricing")
 	if err != nil {
 		slog.Warn("sp-api: competitive pricing failed in GetProductDetails", "error", err)
 		return products, nil
@@ -407,7 +529,7 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 		endpoint := fmt.Sprintf("/listings/2021-08-01/restrictions?asin=%s&sellerId=%s&marketplaceIds=%s&conditionType=new_new&reasonLocale=en_US",
 			asin, c.sellerID, marketplaceID(marketplace))
 
-		resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+		resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "listing_restrictions")
 		if err != nil {
 			slog.Warn("sp-api: eligibility check failed", "asin", asin, "error", err)
 			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true}) // fail open
@@ -463,7 +585,7 @@ func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, i
 		endpoint := fmt.Sprintf("/catalog/2022-04-01/items?marketplaceIds=%s&identifiers=%s&identifiersType=%s&pageSize=20&includedData=summaries,salesRanks,attributes",
 			marketplaceID(marketplace), url.QueryEscape(idParam), url.QueryEscape(idType))
 
-		resp, err := c.apiRequest(ctx, "GET", endpoint, nil)
+		resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "catalog_items")
 		if err != nil {
 			slog.Warn("sp-api: identifier lookup failed", "error", err)
 			continue
