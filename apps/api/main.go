@@ -124,14 +124,12 @@ func main() {
 	campaignSvc := service.NewCampaignService(campaignRepo, scoringRepo, eventSvc, durableRuntime, fallbackPipeline, idGen)
 	discoverySvc := service.NewDiscoveryService(discoveryRepo)
 
-	// Seed default scoring config for dev tenant
-	if cfg.IsDev() {
-		devTenantID := domain.TenantID("00000000-0000-0000-0000-000000000010")
-		if err := scoringSvc.EnsureDefault(ctx, devTenantID); err != nil {
-			slog.Warn("failed to seed dev scoring config", "error", err)
-		} else {
-			slog.Info("dev scoring config ready", "tenant_id", devTenantID)
-		}
+	// Seed default scoring config for the default tenant
+	defaultTenantID := domain.TenantID("00000000-0000-0000-0000-000000000010")
+	if err := scoringSvc.EnsureDefault(ctx, defaultTenantID); err != nil {
+		slog.Warn("failed to seed scoring config", "error", err)
+	} else {
+		slog.Info("scoring config ready", "tenant_id", defaultTenantID)
 	}
 
 	// Handlers
