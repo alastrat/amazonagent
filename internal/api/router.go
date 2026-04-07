@@ -20,6 +20,8 @@ type Handlers struct {
 	BrandBlocklist *handler.BrandBlocklistHandler
 	PriceList *handler.PriceListHandler
 	Settings  *handler.SettingsHandler
+	Scan      *handler.ScanHandler
+	Catalog   *handler.CatalogHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -64,6 +66,15 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Get("/dashboard/summary", h.Dashboard.Summary)
 
 		r.Post("/pricelist/upload", h.PriceList.Upload)
+		r.Post("/pricelist/upload-funnel", h.PriceList.UploadWithFunnel)
+		r.Get("/scans", h.PriceList.ListScanJobs)
+		r.Get("/scans/{id}", h.PriceList.GetScanJob)
+		r.Post("/scans/category", h.Scan.TriggerCategoryScan)
+
+		r.Get("/catalog/products", h.Catalog.ListProducts)
+		r.Get("/catalog/brands", h.Catalog.ListBrands)
+		r.Get("/catalog/brands/{id}/products", h.Catalog.ListBrandProducts)
+		r.Get("/catalog/stats", h.Catalog.Stats)
 
 		r.Get("/settings", h.Settings.Get)
 		r.Put("/settings", h.Settings.Update)
