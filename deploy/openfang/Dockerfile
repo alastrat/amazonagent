@@ -12,6 +12,8 @@ RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") && \
 
 RUN mkdir -p /root/.openfang /data
 
+COPY config.toml /root/.openfang/config.toml
+
 EXPOSE 4200
 
 CMD ["openfang", "start"]
