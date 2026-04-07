@@ -7,6 +7,8 @@ import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { StatusPill } from "@/components/status-pill";
 import { ScoreBadge } from "@/components/score-badge";
+import { PriceListUploadDialog } from "@/components/price-list-upload-dialog";
+import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
   const { data, isLoading } = useQuery({
@@ -18,7 +20,15 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description="Overview of your sourcing pipeline" />
+      <PageHeader
+        title="Dashboard"
+        description="Overview of your sourcing pipeline"
+        action={
+          <PriceListUploadDialog>
+            <Button>Upload Price List</Button>
+          </PriceListUploadDialog>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard title="Pending Review" value={data?.deals_pending_review ?? 0} description="Deals awaiting your decision" />

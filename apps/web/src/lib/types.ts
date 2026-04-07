@@ -123,6 +123,76 @@ export interface DomainEvent {
   timestamp: string;
 }
 
+export interface DiscoveredProduct {
+  id: string;
+  tenant_id: string;
+  asin: string;
+  title: string;
+  brand_id: string;
+  category: string;
+  browse_node_id?: string;
+  estimated_price?: number;
+  buy_box_price?: number;
+  bsr_rank?: number;
+  seller_count?: number;
+  estimated_margin_pct?: number;
+  real_margin_pct?: number;
+  eligibility_status: string;
+  data_quality: number;
+  refresh_priority: number;
+  source: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  price_updated_at?: string;
+}
+
+export interface BrandIntelligence {
+  tenant_id: string;
+  brand_id: string;
+  brand_name: string;
+  category: string;
+  product_count: number;
+  high_margin_count: number;
+  avg_margin: number;
+  avg_sellers: number;
+  avg_bsr: number;
+}
+
+export interface CatalogStats {
+  total_products: number;
+  total_brands: number;
+  avg_margin: number;
+  eligible_count: number;
+}
+
+export interface FunnelStats {
+  input_count: number;
+  t0_deduped: number;
+  t1_margin_killed: number;
+  t2_brand_killed: number;
+  t3_enrich_killed: number;
+  survivor_count: number;
+}
+
+export interface ScanJob {
+  id: string;
+  tenant_id: string;
+  type: string;
+  status: string;
+  total_items: number;
+  processed: number;
+  qualified: number;
+  eliminated: number;
+  started_at: string;
+  completed_at?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface UploadFunnelResponse {
+  scan_id: string;
+  funnel: FunnelStats;
+}
+
 export type DiscoveryCadence = "nightly" | "twice_daily" | "weekly";
 
 export interface DiscoveryConfig {
