@@ -30,7 +30,7 @@ func NewAuthProviderWithURL(jwtSecret, supabaseURL, supabaseAnonKey string, isDe
 	p := &AuthProvider{jwtSecret: jwtSecret, isDev: isDev}
 
 	if supabaseURL != "" && supabaseAnonKey != "" {
-		jwksURL := strings.TrimSuffix(supabaseURL, "/") + "/auth/v1/.well-known/jwks"
+		jwksURL := strings.TrimSuffix(supabaseURL, "/") + "/auth/v1/.well-known/jwks.json"
 		jwksJSON, err := fetchJWKS(jwksURL, supabaseAnonKey)
 		if err != nil {
 			slog.Warn("auth: failed to fetch JWKS", "error", err.Error())
