@@ -23,7 +23,9 @@ func (h *DiscoveryHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	dc, err := h.svc.Get(r.Context(), ac.TenantID)
 	if err != nil {
-		response.Error(w, http.StatusNotFound, "no discovery config found")
+		// Return default config instead of 404
+		defaults := domain.DefaultDiscoveryConfig(ac.TenantID)
+		response.JSON(w, http.StatusOK, defaults)
 		return
 	}
 

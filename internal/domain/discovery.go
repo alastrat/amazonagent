@@ -15,3 +15,18 @@ type DiscoveryConfig struct {
 	LastRunAt        *time.Time        `json:"last_run_at,omitempty"`
 	NextRunAt        *time.Time        `json:"next_run_at,omitempty"`
 }
+
+func DefaultDiscoveryConfig(tenantID TenantID) DiscoveryConfig {
+	return DiscoveryConfig{
+		TenantID:   tenantID,
+		Categories: []string{"kitchen", "home fitness", "pet supplies"},
+		Cadence:    "nightly",
+		Enabled:    false,
+		BaselineCriteria: Criteria{
+			Marketplace:  "US",
+			MinMarginPct: floatPtr(30),
+		},
+	}
+}
+
+func floatPtr(f float64) *float64 { return &f }
