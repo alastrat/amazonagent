@@ -24,8 +24,8 @@ func (r *DealRepo) Create(ctx context.Context, d *domain.Deal) error {
 
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO deals (id, tenant_id, campaign_id, asin, title, brand, category, status, scores, evidence, reviewer_verdict, iteration_count, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	`, d.ID, d.TenantID, d.CampaignID, d.ASIN, d.Title, d.Brand, d.Category, d.Status, scores, evidence, d.ReviewerVerdict, d.IterationCount, d.CreatedAt, d.UpdatedAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, $12, $13, $14)
+	`, d.ID, d.TenantID, d.CampaignID, d.ASIN, d.Title, d.Brand, d.Category, d.Status, string(scores), string(evidence), d.ReviewerVerdict, d.IterationCount, d.CreatedAt, d.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert deal: %w", err)
 	}
@@ -158,9 +158,9 @@ func (r *DealRepo) Update(ctx context.Context, d *domain.Deal) error {
 	evidence, _ := json.Marshal(d.Evidence)
 
 	_, err := r.pool.Exec(ctx, `
-		UPDATE deals SET status = $1, scores = $2, evidence = $3, reviewer_verdict = $4, iteration_count = $5, supplier_id = $6, listing_id = $7, updated_at = $8
+		UPDATE deals SET status = $1, scores = $2::jsonb, evidence = $3::jsonb, reviewer_verdict = $4, iteration_count = $5, supplier_id = $6, listing_id = $7, updated_at = $8
 		WHERE id = $9 AND tenant_id = $10
-	`, d.Status, scores, evidence, d.ReviewerVerdict, d.IterationCount, d.SupplierID, d.ListingID, d.UpdatedAt, d.ID, d.TenantID)
+	`, d.Status, string(scores), string(evidence), d.ReviewerVerdict, d.IterationCount, d.SupplierID, d.ListingID, d.UpdatedAt, d.ID, d.TenantID)
 	if err != nil {
 		return fmt.Errorf("update deal: %w", err)
 	}

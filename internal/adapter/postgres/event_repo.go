@@ -22,8 +22,8 @@ func (r *EventRepo) Create(ctx context.Context, e *domain.DomainEvent) error {
 	payload, _ := json.Marshal(e.Payload)
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO domain_events (id, tenant_id, event_type, entity_type, entity_id, payload, correlation_id, actor_id, timestamp)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, e.ID, e.TenantID, e.EventType, e.EntityType, e.EntityID, payload, e.CorrelationID, e.ActorID, e.Timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+	`, e.ID, e.TenantID, e.EventType, e.EntityType, e.EntityID, string(payload), e.CorrelationID, e.ActorID, e.Timestamp)
 	if err != nil {
 		return fmt.Errorf("insert event: %w", err)
 	}

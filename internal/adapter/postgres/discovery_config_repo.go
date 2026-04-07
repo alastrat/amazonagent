@@ -39,10 +39,10 @@ func (r *DiscoveryConfigRepo) Upsert(ctx context.Context, dc *domain.DiscoveryCo
 
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO discovery_configs (id, tenant_id, categories, baseline_criteria, scoring_config_id, cadence, enabled, last_run_at, next_run_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8, $9)
 		ON CONFLICT (tenant_id)
-		DO UPDATE SET categories = $3, baseline_criteria = $4, scoring_config_id = $5, cadence = $6, enabled = $7, last_run_at = $8, next_run_at = $9
-	`, dc.ID, dc.TenantID, categories, criteria, dc.ScoringConfigID, dc.Cadence, dc.Enabled, dc.LastRunAt, dc.NextRunAt)
+		DO UPDATE SET categories = $3::jsonb, baseline_criteria = $4::jsonb, scoring_config_id = $5, cadence = $6, enabled = $7, last_run_at = $8, next_run_at = $9
+	`, dc.ID, dc.TenantID, string(categories), string(criteria), dc.ScoringConfigID, dc.Cadence, dc.Enabled, dc.LastRunAt, dc.NextRunAt)
 	if err != nil {
 		return fmt.Errorf("upsert discovery config: %w", err)
 	}

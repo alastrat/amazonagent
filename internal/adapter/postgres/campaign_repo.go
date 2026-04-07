@@ -26,8 +26,8 @@ func (r *CampaignRepo) Create(ctx context.Context, c *domain.Campaign) error {
 
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO campaigns (id, tenant_id, type, criteria, scoring_config_id, experiment_id, source_file, status, created_by, trigger_type, created_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`, c.ID, c.TenantID, c.Type, criteria, c.ScoringConfigID, c.ExperimentID, c.SourceFile, c.Status, c.CreatedBy, c.TriggerType, c.CreatedAt, c.CompletedAt)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, c.ID, c.TenantID, c.Type, string(criteria), c.ScoringConfigID, c.ExperimentID, c.SourceFile, c.Status, c.CreatedBy, c.TriggerType, c.CreatedAt, c.CompletedAt)
 	if err != nil {
 		return fmt.Errorf("insert campaign: %w", err)
 	}
@@ -110,8 +110,8 @@ func (r *CampaignRepo) Update(ctx context.Context, c *domain.Campaign) error {
 		return fmt.Errorf("marshal criteria: %w", err)
 	}
 	_, err = r.pool.Exec(ctx, `
-		UPDATE campaigns SET status = $1, completed_at = $2, criteria = $3 WHERE id = $4 AND tenant_id = $5
-	`, c.Status, c.CompletedAt, criteria, c.ID, c.TenantID)
+		UPDATE campaigns SET status = $1, completed_at = $2, criteria = $3::jsonb WHERE id = $4 AND tenant_id = $5
+	`, c.Status, c.CompletedAt, string(criteria), c.ID, c.TenantID)
 	if err != nil {
 		return fmt.Errorf("update campaign: %w", err)
 	}
