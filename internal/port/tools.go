@@ -53,6 +53,7 @@ type ListingRestriction struct {
 // ProductSearcher searches Amazon for products
 type ProductSearcher interface {
 	SearchProducts(ctx context.Context, keywords []string, marketplace string) ([]ProductSearchResult, error)
+	SearchByBrowseNode(ctx context.Context, nodeID string, marketplace string, pageToken string) ([]ProductSearchResult, string, error)
 	GetProductDetails(ctx context.Context, asins []string, marketplace string) ([]ProductSearchResult, error)
 	EstimateFees(ctx context.Context, asin string, price float64, marketplace string) (*ProductFeeEstimate, error)
 	CheckListingEligibility(ctx context.Context, asins []string, marketplace string) ([]ListingRestriction, error)

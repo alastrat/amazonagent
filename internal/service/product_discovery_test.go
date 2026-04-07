@@ -21,6 +21,9 @@ func (m *mockDiscoverySearcher) SearchProducts(_ context.Context, _ []string, _ 
 	}, nil
 }
 
+func (m *mockDiscoverySearcher) SearchByBrowseNode(_ context.Context, _ string, _ string, _ string) ([]port.ProductSearchResult, string, error) {
+	return nil, "", nil
+}
 func (m *mockDiscoverySearcher) GetProductDetails(_ context.Context, _ []string, _ string) ([]port.ProductSearchResult, error) {
 	return nil, nil
 }
