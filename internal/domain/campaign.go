@@ -32,6 +32,7 @@ type Campaign struct {
 	ScoringConfigID ScoringConfigID `json:"scoring_config_id"`
 	ExperimentID    *string         `json:"experiment_id,omitempty"`
 	SourceFile      *string         `json:"source_file,omitempty"`
+	ScanType        ScanType        `json:"scan_type"`
 	Status          CampaignStatus  `json:"status"`
 	CreatedBy       string          `json:"created_by"`
 	TriggerType     TriggerType     `json:"trigger_type"`
