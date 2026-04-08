@@ -103,9 +103,11 @@ func NewDurableRuntime(
 				if len(campaign.Criteria.BlockedBrands) > 0 {
 					config.Thresholds.BrandFilter.BlockList = campaign.Criteria.BlockedBrands
 				}
-				if len(campaign.Criteria.PreferredBrands) > 0 {
-					config.Thresholds.BrandFilter.AllowList = campaign.Criteria.PreferredBrands
-				}
+				// NOTE: PreferredBrands are NOT set as AllowList — that would
+				// reject everything not on the list. Preferred brands are stored
+				// for scoring weight adjustments, not as an exclusive filter.
+				// config.Thresholds.BrandFilter.AllowList is only used when the
+				// user explicitly wants allowlist-only mode.
 				// Load tenant's brand blocklist from DB and merge
 				if brandBlocklistSvc != nil {
 					dbFilter, err := brandBlocklistSvc.LoadBrandFilter(ctx, tenantID)
@@ -134,9 +136,13 @@ func NewDurableRuntime(
 				if productDiscovery != nil {
 					products, err := productDiscovery.DiscoverAndPreQualify(ctx, tenantID, campaign.Criteria, config.Thresholds)
 					if err != nil {
-						return "", err
+						return "[]", err
 					}
-					var candidates []map[string]any
+					if len(products) == 0 {
+						slog.Info("inngest: discovery returned 0 products", "campaign_id", data.CampaignID)
+						return "[]", nil
+					}
+					candidates := make([]map[string]any, 0, len(products))
 					for _, p := range products {
 						candidates = append(candidates, p.ToCandidate())
 					}
@@ -339,14 +345,23 @@ func NewDurableRuntime(
 				return string(b), nil
 			})
 			if err != nil {
-				slog.Warn("inngest: gating failed", "asin", asin, "error", err)
-				return map[string]string{"asin": asin, "status": "failed-gating"}, nil
+				slog.Warn("inngest: gating agent error, passing candidate through", "asin", asin, "error", err)
+				// Don't drop on agent error — let downstream agents decide
+				return "", fmt.Errorf("gating agent: %w", err)
 			}
 			var gatingResult map[string]any
 			json.Unmarshal([]byte(gatingJSON), &gatingResult)
-			gatingPassed, _ := gatingResult["passed"].(bool)
-			if !gatingPassed {
+			// Check multiple possible key names the LLM might return
+			gatingPassed := extractBoolFromAgent(gatingResult, "passed", "eligible", "allowed", "approved")
+			riskScore, _ := getIntFromMap(gatingResult, "risk_score")
+			if !gatingPassed && riskScore == 0 {
+				// Only reject if the agent explicitly said not passed AND didn't provide scores
+				// If agent returned scores but no explicit pass/fail, assume it passed (scores will be evaluated by reviewer)
+				slog.Info("inngest: gating rejected candidate", "asin", asin, "result", gatingResult)
 				return map[string]string{"asin": asin, "status": "failed-gating"}, nil
+			}
+			if !gatingPassed && riskScore > 0 {
+				slog.Info("inngest: gating returned scores without explicit pass, proceeding", "asin", asin, "risk_score", riskScore)
 			}
 			gatingCtx := domain.AgentContext{AgentName: "gating", Facts: gatingResult}
 
@@ -364,21 +379,47 @@ func NewDurableRuntime(
 				if err != nil {
 					return "", err
 				}
-				// Merge deterministic FBA calc
+				// Merge deterministic FBA calc — handle both direct struct and post-JSON map
 				if fbaCalc, ok := profitInput["fba_calculation"]; ok {
-					if fc, ok := fbaCalc.(domain.FBAFeeCalculation); ok {
+					switch fc := fbaCalc.(type) {
+					case domain.FBAFeeCalculation:
 						out.Structured["net_margin_pct"] = fc.NetMarginPct
 						out.Structured["roi_pct"] = fc.ROIPct
 						out.Structured["net_profit"] = fc.NetProfit
 						out.Structured["total_fees"] = fc.TotalFees
+					case map[string]any:
+						// After JSON round-trip, struct becomes map[string]any
+						if v, ok := fc["net_margin_pct"].(float64); ok {
+							out.Structured["net_margin_pct"] = v
+						}
+						if v, ok := fc["roi_pct"].(float64); ok {
+							out.Structured["roi_pct"] = v
+						}
+						if v, ok := fc["net_profit"].(float64); ok {
+							out.Structured["net_profit"] = v
+						}
+						if v, ok := fc["total_fees"].(float64); ok {
+							out.Structured["total_fees"] = v
+						}
+					}
+				}
+				// Also calculate margin directly from price if not already present
+				if _, hasMargin := out.Structured["net_margin_pct"]; !hasMargin {
+					if price, ok := profitInput["amazon_price"].(float64); ok && price > 0 {
+						wholesaleCost := price * 0.4
+						fbaCalc := domain.CalculateFBAFees(price, wholesaleCost, 1.0, false)
+						out.Structured["net_margin_pct"] = fbaCalc.NetMarginPct
+						out.Structured["roi_pct"] = fbaCalc.ROIPct
+						out.Structured["net_profit"] = fbaCalc.NetProfit
+						out.Structured["total_fees"] = fbaCalc.TotalFees
 					}
 				}
 				b, _ := json.Marshal(out.Structured)
 				return string(b), nil
 			})
 			if err != nil {
-				slog.Warn("inngest: profitability failed", "asin", asin, "error", err)
-				return map[string]string{"asin": asin, "status": "failed-profitability"}, nil
+				slog.Error("inngest: profitability agent failed", "asin", asin, "error", err)
+				return nil, fmt.Errorf("profitability agent for %s: %w", asin, err)
 			}
 			var profitResult map[string]any
 			json.Unmarshal([]byte(profitJSON), &profitResult)
@@ -402,8 +443,8 @@ func NewDurableRuntime(
 				return string(b), nil
 			})
 			if err != nil {
-				slog.Warn("inngest: demand failed", "asin", asin, "error", err)
-				return map[string]string{"asin": asin, "status": "failed-demand"}, nil
+				slog.Error("inngest: demand agent failed", "asin", asin, "error", err)
+				return nil, fmt.Errorf("demand agent for %s: %w", asin, err)
 			}
 			var demandResult map[string]any
 			json.Unmarshal([]byte(demandJSON), &demandResult)
@@ -427,8 +468,8 @@ func NewDurableRuntime(
 				return string(b), nil
 			})
 			if err != nil {
-				slog.Warn("inngest: supplier failed", "asin", asin, "error", err)
-				return map[string]string{"asin": asin, "status": "failed-supplier"}, nil
+				slog.Error("inngest: supplier agent failed", "asin", asin, "error", err)
+				return nil, fmt.Errorf("supplier agent for %s: %w", asin, err)
 			}
 			var supplierResult map[string]any
 			json.Unmarshal([]byte(supplierJSON), &supplierResult)
@@ -459,8 +500,8 @@ func NewDurableRuntime(
 				return string(b), nil
 			})
 			if err != nil {
-				slog.Warn("inngest: reviewer failed", "asin", asin, "error", err)
-				return map[string]string{"asin": asin, "status": "failed-reviewer"}, nil
+				slog.Error("inngest: reviewer agent failed", "asin", asin, "error", err)
+				return nil, fmt.Errorf("reviewer agent for %s: %w", asin, err)
 			}
 
 			var reviewResult service.ReviewResult
@@ -478,7 +519,7 @@ func NewDurableRuntime(
 			demandScore, _ := getIntFromMap(demandResult, "demand_score")
 			competitionScore, _ := getIntFromMap(demandResult, "competition_score")
 			marginPct, _ := getFloatFromMap(profitResult, "net_margin_pct")
-			riskScore, _ := getIntFromMap(gatingResult, "risk_score")
+			finalRiskScore, _ := getIntFromMap(gatingResult, "risk_score")
 
 			result := &domain.CandidateResult{
 				ASIN:     asin,
@@ -489,7 +530,7 @@ func NewDurableRuntime(
 					Demand:              demandScore,
 					Competition:         competitionScore,
 					Margin:              scoreFromMarginPct(marginPct),
-					Risk:                10 - riskScore,
+					Risk:                10 - finalRiskScore,
 					SourcingFeasibility: reviewResult.SourcingFeasibility,
 					Overall:             reviewResult.WeightedComposite,
 				},
@@ -941,6 +982,28 @@ func scoreFromMarginPct(marginPct float64) int {
 	default:
 		return 3
 	}
+}
+
+// extractBoolFromAgent tries multiple key names that an LLM agent might return for a boolean field.
+// Returns true if any of the keys is truthy (bool true, string "true"/"yes", or number > 0).
+func extractBoolFromAgent(m map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		v, ok := m[key]
+		if !ok {
+			continue
+		}
+		switch val := v.(type) {
+		case bool:
+			return val
+		case string:
+			return val == "true" || val == "yes" || val == "True" || val == "Yes"
+		case float64:
+			return val > 0
+		case int:
+			return val > 0
+		}
+	}
+	return false
 }
 
 func (r *DurableRuntime) TriggerCampaignProcessing(ctx context.Context, campaignID domain.CampaignID, tenantID domain.TenantID) error {

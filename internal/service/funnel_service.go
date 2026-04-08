@@ -113,7 +113,7 @@ func (s *FunnelService) ProcessBatch(
 
 		// Price range filter ($10-$200 default)
 		if p.EstimatedPrice < 10.0 || p.EstimatedPrice > 200.0 {
-			slog.Debug("funnel: T1 eliminated (price range)", "asin", p.ASIN, "price", p.EstimatedPrice)
+			slog.Info("funnel: T1 eliminated (price range)", "asin", p.ASIN, "price", p.EstimatedPrice)
 			stats.T1MarginKilled++
 			continue
 		}
@@ -126,7 +126,7 @@ func (s *FunnelService) ProcessBatch(
 		fbaCalc := domain.CalculateFBAFees(p.EstimatedPrice, wholesaleCost, 1.0, false)
 
 		if thresholds.MinMarginPct > 0 && fbaCalc.NetMarginPct < thresholds.MinMarginPct {
-			slog.Debug("funnel: T1 eliminated (margin)", "asin", p.ASIN, "margin", fbaCalc.NetMarginPct, "min", thresholds.MinMarginPct)
+			slog.Info("funnel: T1 eliminated (margin)", "asin", p.ASIN, "margin", fbaCalc.NetMarginPct, "min", thresholds.MinMarginPct)
 			stats.T1MarginKilled++
 			continue
 		}
@@ -160,14 +160,14 @@ func (s *FunnelService) ProcessBatch(
 		for _, p := range t1Survivors {
 			// Check blocklist
 			if !thresholds.BrandFilter.IsBrandAllowed(p.Brand) {
-				slog.Debug("funnel: T2 eliminated (blocklist)", "asin", p.ASIN, "brand", p.Brand)
+				slog.Info("funnel: T2 eliminated (blocklist)", "asin", p.ASIN, "brand", p.Brand)
 				stats.T2BrandKilled++
 				continue
 			}
 
 			// Check eligibility
 			if isEligible, ok := eligibilityMap[p.ASIN]; ok && !isEligible {
-				slog.Debug("funnel: T2 eliminated (restricted)", "asin", p.ASIN, "brand", p.Brand)
+				slog.Info("funnel: T2 eliminated (restricted)", "asin", p.ASIN, "brand", p.Brand)
 				stats.T2BrandKilled++
 				continue
 			}
@@ -245,7 +245,7 @@ func (s *FunnelService) ProcessBatch(
 
 				// Apply seller count filter
 				if thresholds.MinSellerCount > 0 && sellerCount > 0 && sellerCount < thresholds.MinSellerCount {
-					slog.Debug("funnel: T3 eliminated (sellers)", "asin", asin, "sellers", sellerCount, "min", thresholds.MinSellerCount)
+					slog.Info("funnel: T3 eliminated (sellers)", "asin", asin, "sellers", sellerCount, "min", thresholds.MinSellerCount)
 					stats.T3EnrichKilled++
 					continue
 				}
@@ -258,7 +258,7 @@ func (s *FunnelService) ProcessBatch(
 				fbaCalc := domain.CalculateFBAFees(buyBoxPrice, wholesaleCost, 1.0, false)
 
 				if thresholds.MinMarginPct > 0 && fbaCalc.NetMarginPct < thresholds.MinMarginPct {
-					slog.Debug("funnel: T3 eliminated (real margin)", "asin", asin, "margin", fbaCalc.NetMarginPct, "buy_box", buyBoxPrice)
+					slog.Info("funnel: T3 eliminated (real margin)", "asin", asin, "margin", fbaCalc.NetMarginPct, "buy_box", buyBoxPrice)
 					stats.T3EnrichKilled++
 					continue
 				}
