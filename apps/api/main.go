@@ -102,12 +102,25 @@ func main() {
 	tenantSettingsRepo := postgres.NewTenantSettingsRepo(pool)
 	tenantSettingsSvc := service.NewTenantSettingsService(tenantSettingsRepo)
 
+	// Catalog repos + service (persistent product catalog)
+	discoveredProductRepo := postgres.NewDiscoveredProductRepo(pool)
+	priceHistoryRepo := postgres.NewPriceHistoryRepo(pool)
+	browseNodeRepo := postgres.NewBrowseNodeRepo(pool)
+	scanJobRepo := postgres.NewScanJobRepo(pool)
+	catalogSvc := service.NewCatalogService(discoveredProductRepo, priceHistoryRepo, brandRepo, idGen)
+	funnelSvc := service.NewFunnelService(catalogSvc, brandEligibilitySvc, brandBlocklistSvc, spapiClient)
+	priceListScanner := service.NewPriceListScanner(spapiClient).WithFunnel(funnelSvc, scanJobRepo)
+	categoryScanSvc := service.NewCategoryScanService(browseNodeRepo, catalogSvc, funnelSvc, spapiClient, scanJobRepo, idGen)
+	brandIntelRepo := postgres.NewBrandIntelligenceRepo(pool)
+
 	// Durable runtime (Inngest) — optional, falls back to goroutine if unavailable
 	var durableRuntime *inngest.DurableRuntime
 	inngestRuntime, err := inngest.NewDurableRuntime(
 		pipelineSvc, orchestrator, toolResolver,
 		productDiscovery, brandBlocklistSvc,
 		campaignRepo, scoringRepo, dealSvc,
+		priceListScanner, funnelSvc, categoryScanSvc,
+		catalogSvc, brandIntelRepo, spapiClient,
 	)
 	if err != nil {
 		slog.Warn("inngest not available, using goroutine fallback", "error", err)
@@ -142,8 +155,10 @@ func main() {
 		Event:          handler.NewEventHandler(eventSvc),
 		Dashboard:      handler.NewDashboardHandler(campaignSvc, dealSvc),
 		BrandBlocklist: handler.NewBrandBlocklistHandler(brandBlocklistSvc),
-		PriceList:      handler.NewPriceListHandler(service.NewPriceListScanner(spapiClient)),
+		PriceList:      handler.NewPriceListHandler(priceListScanner, scanJobRepo),
 		Settings:       handler.NewSettingsHandler(tenantSettingsSvc),
+		Scan:           handler.NewScanHandler(durableRuntime),
+		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)

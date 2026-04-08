@@ -8,6 +8,11 @@ import type {
   DashboardSummary,
   DomainEvent,
   DiscoveryConfig,
+  DiscoveredProduct,
+  BrandIntelligence,
+  CatalogStats,
+  ScanJob,
+  UploadFunnelResponse,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -35,6 +40,26 @@ class ApiClient {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.error || `API error: ${res.status}`);
+    }
+
+    return res.json();
+  }
+
+  private async fetchMultipart<T>(path: string, body: FormData): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers,
+      body,
+    });
+
+    if (!res.ok) {
+      const resBody = await res.json().catch(() => ({}));
+      throw new Error(resBody.error || `API error: ${res.status}`);
     }
 
     return res.json();
@@ -104,6 +129,47 @@ class ApiClient {
       method: "PUT",
       body: JSON.stringify(data),
     });
+  }
+
+  getCatalogProducts(params?: Record<string, string>) {
+    const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+    return this.fetch<{ products: DiscoveredProduct[]; total: number }>(`/catalog/products${qs}`);
+  }
+
+  getCatalogStats() {
+    return this.fetch<CatalogStats>("/catalog/stats");
+  }
+
+  getBrands(params?: Record<string, string>) {
+    const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+    return this.fetch<{ brands: BrandIntelligence[]; total: number }>(`/catalog/brands${qs}`);
+  }
+
+  getBrandProducts(brandId: string, params?: Record<string, string>) {
+    const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+    return this.fetch<{ products: DiscoveredProduct[]; total: number }>(`/catalog/brands/${brandId}/products${qs}`);
+  }
+
+  evaluateProducts(asins: string[]) {
+    return this.fetch<ScanJob>("/scans/category", {
+      method: "POST",
+      body: JSON.stringify({ asins }),
+    });
+  }
+
+  uploadPriceList(file: File, distributor: string) {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("distributor", distributor);
+    return this.fetchMultipart<UploadFunnelResponse>("/pricelist/upload-funnel", form);
+  }
+
+  getScans() {
+    return this.fetch<ScanJob[]>("/scans");
+  }
+
+  getScan(id: string) {
+    return this.fetch<ScanJob>(`/scans/${id}`);
   }
 }
 

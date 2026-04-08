@@ -1,0 +1,66 @@
+name: amazonagent-api
+region: nyc
+services:
+  - name: api
+    dockerfile_path: Dockerfile
+    source_dir: /
+    github:
+      repo: alastrat/amazonagent
+      branch: main
+      deploy_on_push: true
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 15
+      period_seconds: 30
+    routes:
+      - path: /
+    envs:
+      - key: ENV
+        value: production
+      - key: PORT
+        value: "8080"
+      - key: DATABASE_URL
+        value: "${DATABASE_URL}"
+        type: SECRET
+      - key: SUPABASE_URL
+        value: "${SUPABASE_URL}"
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: "${SUPABASE_PUBLISHABLE_KEY}"
+      - key: SUPABASE_JWT_SECRET
+        value: "${SUPABASE_JWT_SECRET}"
+        type: SECRET
+      - key: INNGEST_EVENT_KEY
+        value: "${INNGEST_EVENT_KEY}"
+        type: SECRET
+      - key: INNGEST_SIGNING_KEY
+        value: "${INNGEST_SIGNING_KEY}"
+        type: SECRET
+      - key: INNGEST_DEV
+        value: "false"
+      - key: ANTHROPIC_API_KEY
+        value: "${ANTHROPIC_API_KEY}"
+        type: SECRET
+      - key: SP_API_LWA_APP_ID
+        value: "${SP_API_LWA_APP_ID}"
+        type: SECRET
+      - key: SP_API_LWA_CLIENT_SECRET
+        value: "${SP_API_LWA_CLIENT_SECRET}"
+        type: SECRET
+      - key: SP_API_REFRESH_TOKEN
+        value: "${SP_API_REFRESH_TOKEN}"
+        type: SECRET
+      - key: AMAZON_MERCHANT_TOKEN
+        value: "${AMAZON_MERCHANT_TOKEN}"
+        type: SECRET
+      - key: EXA_API_KEY
+        value: "${EXA_API_KEY}"
+        type: SECRET
+      - key: FIRECRAWL_API_KEY
+        value: "${FIRECRAWL_API_KEY}"
+        type: SECRET
+      - key: TELEGRAM_BOT_TOKEN
+        value: "${TELEGRAM_BOT_TOKEN}"
+        type: SECRET

@@ -138,6 +138,13 @@ system_prompt = """%s"""
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
+		// If agent already exists, try to find it by listing agents
+		if resp.StatusCode == http.StatusInternalServerError || resp.StatusCode == http.StatusConflict {
+			slog.Info("openfang: agent may already exist, looking up", "name", name)
+			if existingID, err := r.findAgentByName(ctx, name); err == nil && existingID != "" {
+				return existingID, nil
+			}
+		}
 		return "", fmt.Errorf("spawn agent failed (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -158,6 +165,41 @@ system_prompt = """%s"""
 	}
 
 	return id, nil
+}
+
+// findAgentByName looks up an existing agent by name via the OpenFang list API.
+func (r *AgentRuntime) findAgentByName(ctx context.Context, name string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", r.apiURL+"/api/agents", nil)
+	if err != nil {
+		return "", err
+	}
+	r.setHeaders(req)
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("list agents failed (status %d)", resp.StatusCode)
+	}
+
+	var agents []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+		return "", err
+	}
+
+	for _, a := range agents {
+		if a.Name == name {
+			slog.Info("openfang: found existing agent", "name", name, "id", a.ID)
+			return a.ID, nil
+		}
+	}
+	return "", fmt.Errorf("agent %q not found", name)
 }
 
 // messageResponse is the OpenFang message response format.

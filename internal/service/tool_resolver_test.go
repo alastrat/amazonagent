@@ -16,6 +16,9 @@ func (m *mockProductSearcher) SearchProducts(_ context.Context, _ []string, _ st
 		{ASIN: "B0TEST001", Title: "Test Product", Brand: "TestBrand", AmazonPrice: 25.00, BSRRank: 5000},
 	}, nil
 }
+func (m *mockProductSearcher) SearchByBrowseNode(_ context.Context, _ string, _ string, _ string) ([]port.ProductSearchResult, string, error) {
+	return nil, "", nil
+}
 func (m *mockProductSearcher) GetProductDetails(_ context.Context, _ []string, _ string) ([]port.ProductSearchResult, error) {
 	return nil, nil
 }

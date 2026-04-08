@@ -64,6 +64,8 @@ func (r *Reviewer) Review(
 	}
 
 	if len(ruleFailures) > 0 {
+		asin, _ := candidate["asin"].(string)
+		slog.Info("reviewer: cut by rule checks", "asin", asin, "failures", ruleFailures)
 		result.RuleChecksPassed = false
 		result.RuleFailures = ruleFailures
 		result.Tier = domain.DealTierCut
