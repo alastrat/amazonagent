@@ -13,6 +13,7 @@
 ## File Structure
 
 ### New files
+
 ```
 internal/domain/pricelist.go              -- PriceListItem, PriceListUpload domain types
 internal/service/pricelist_scanner.go     -- CSV parsing + scanning logic
@@ -21,6 +22,7 @@ internal/api/handler/pricelist_handler.go -- Upload endpoint
 ```
 
 ### Modified files
+
 ```
 internal/port/tools.go                    -- Add LookupByIdentifier to ProductSearcher
 internal/adapter/spapi/client.go          -- Implement UPC/EAN → ASIN lookup
@@ -33,9 +35,9 @@ apps/api/main.go                          -- Wire PriceListScanner
 ## Task 1: Domain Types for Price List
 
 **Files:**
-- Create: `internal/domain/pricelist.go`
 
-- [ ] **Step 1: Create `internal/domain/pricelist.go`**
+- Create: `internal/domain/pricelist.go`
+- **Step 1: Create `internal/domain/pricelist.go`**
 
 ```go
 package domain
@@ -98,13 +100,13 @@ type PriceListUpload struct {
 }
 ```
 
-- [ ] **Step 2: Verify build**
+- **Step 2: Verify build**
 
 ```bash
 go build ./...
 ```
 
-- [ ] **Step 3: Commit**
+- **Step 3: Commit**
 
 ```bash
 git add internal/domain/pricelist.go
@@ -116,10 +118,10 @@ git commit -m "feat: add price list domain types"
 ## Task 2: SP-API UPC/EAN → ASIN Lookup
 
 **Files:**
+
 - Modify: `internal/port/tools.go`
 - Modify: `internal/adapter/spapi/client.go`
-
-- [ ] **Step 1: Add `LookupByIdentifier` to `ProductSearcher` interface in `internal/port/tools.go`**
+- **Step 1: Add `LookupByIdentifier` to `ProductSearcher` interface in `internal/port/tools.go`**
 
 Add after `CheckListingEligibility`:
 
@@ -128,7 +130,7 @@ Add after `CheckListingEligibility`:
 LookupByIdentifier(ctx context.Context, identifiers []string, idType string, marketplace string) ([]ProductSearchResult, error)
 ```
 
-- [ ] **Step 2: Implement in `internal/adapter/spapi/client.go`**
+- **Step 2: Implement in `internal/adapter/spapi/client.go`**
 
 ```go
 func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, idType string, marketplace string) ([]port.ProductSearchResult, error) {
@@ -226,7 +228,7 @@ func mockLookupByIdentifier(identifiers []string) []port.ProductSearchResult {
 }
 ```
 
-- [ ] **Step 3: Add `LookupByIdentifier` to all test mocks** that implement `ProductSearcher`
+- **Step 3: Add `LookupByIdentifier` to all test mocks** that implement `ProductSearcher`
 
 In `product_discovery_test.go`, `tool_resolver_test.go`, and `spapi/client_test.go`, add:
 
@@ -236,14 +238,14 @@ func (m *mockXxxSearcher) LookupByIdentifier(_ context.Context, ids []string, _ 
 }
 ```
 
-- [ ] **Step 4: Verify build and tests**
+- **Step 4: Verify build and tests**
 
 ```bash
 go build ./...
 go test ./... -count=1
 ```
 
-- [ ] **Step 5: Commit**
+- **Step 5: Commit**
 
 ```bash
 git add internal/port/tools.go internal/adapter/spapi/client.go internal/service/product_discovery_test.go internal/service/tool_resolver_test.go
@@ -255,10 +257,10 @@ git commit -m "feat: add SP-API UPC/EAN to ASIN lookup"
 ## Task 3: Price List Scanner Service
 
 **Files:**
+
 - Create: `internal/service/pricelist_scanner.go`
 - Create: `internal/service/pricelist_scanner_test.go`
-
-- [ ] **Step 1: Create `internal/service/pricelist_scanner.go`**
+- **Step 1: Create `internal/service/pricelist_scanner.go`**
 
 ```go
 package service
@@ -563,7 +565,7 @@ func getCol(record []string, idx int) string {
 }
 ```
 
-- [ ] **Step 2: Create `internal/service/pricelist_scanner_test.go`**
+- **Step 2: Create `internal/service/pricelist_scanner_test.go`**
 
 ```go
 package service_test
@@ -641,13 +643,13 @@ func TestPriceListScanner_ScanPriceList(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- **Step 3: Run tests**
 
 ```bash
 go test ./internal/service/... -v -count=1 -run TestPriceList
 ```
 
-- [ ] **Step 4: Commit**
+- **Step 4: Commit**
 
 ```bash
 git add internal/domain/pricelist.go internal/service/pricelist_scanner.go internal/service/pricelist_scanner_test.go
@@ -659,11 +661,11 @@ git commit -m "feat: add price list scanner — CSV parsing + UPC matching + rea
 ## Task 4: Upload API Endpoint
 
 **Files:**
+
 - Create: `internal/api/handler/pricelist_handler.go`
 - Modify: `internal/api/router.go`
 - Modify: `apps/api/main.go`
-
-- [ ] **Step 1: Create `internal/api/handler/pricelist_handler.go`**
+- **Step 1: Create `internal/api/handler/pricelist_handler.go`**
 
 ```go
 package handler
@@ -751,7 +753,7 @@ func (h *PriceListHandler) Upload(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 2: Add route and handler to router + main.go**
+- **Step 2: Add route and handler to router + main.go**
 
 In `internal/api/router.go`, add `PriceList *handler.PriceListHandler` to Handlers struct, and add route:
 
@@ -771,14 +773,14 @@ And add to handlers:
 PriceList: handler.NewPriceListHandler(priceListScanner),
 ```
 
-- [ ] **Step 3: Verify build**
+- **Step 3: Verify build**
 
 ```bash
 go build ./...
 go test ./... -count=1
 ```
 
-- [ ] **Step 4: Commit**
+- **Step 4: Commit**
 
 ```bash
 git add -A
@@ -789,13 +791,13 @@ git commit -m "feat: add price list upload API endpoint"
 
 ## Task 5: Docker Rebuild + End-to-End Test
 
-- [ ] **Step 1: Rebuild API**
+- **Step 1: Rebuild API**
 
 ```bash
 docker compose up --build -d api --force-recreate
 ```
 
-- [ ] **Step 2: Test with a sample CSV**
+- **Step 2: Test with a sample CSV**
 
 Create a test CSV file:
 
@@ -818,7 +820,7 @@ curl -X POST http://localhost:8081/pricelist/upload \
 
 Expected: results showing which products matched, real margins, eligibility status.
 
-- [ ] **Step 3: Commit**
+- **Step 3: Commit**
 
 ```bash
 git commit --allow-empty -m "verified: price list scanner working end-to-end"
@@ -829,6 +831,7 @@ git commit --allow-empty -m "verified: price list scanner working end-to-end"
 ## Self-Review
 
 **Spec coverage:**
+
 - CSV upload with UPC/EAN + wholesale cost: Task 1 (domain) + Task 3 (parser) ✓
 - Flexible column detection: Task 3 (detectColumns) ✓
 - SP-API UPC → ASIN matching: Task 2 (LookupByIdentifier) ✓
@@ -838,7 +841,9 @@ git commit --allow-empty -m "verified: price list scanner working end-to-end"
 - End-to-end test: Task 5 ✓
 
 **Not in this plan (future):**
+
 - Inngest async processing for large files (>1000 items)
 - Frontend upload UI page
 - Storing scan results in database
 - Re-scanning with updated prices
+
