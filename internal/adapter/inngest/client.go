@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/inngest/inngest/pkg/enums"
 	"github.com/inngest/inngestgo"
 	"github.com/inngest/inngestgo/step"
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
@@ -220,7 +221,14 @@ func NewDurableRuntime(
 	// =========================================================
 	inngestgo.CreateFunction(
 		client,
-		inngestgo.FunctionOpts{ID: "evaluate-candidate", Name: "Evaluate Candidate", Retries: &retries},
+		inngestgo.FunctionOpts{
+			ID:      "evaluate-candidate",
+			Name:    "Evaluate Candidate",
+			Retries: &retries,
+			Concurrency: []inngestgo.ConfigStepConcurrency{
+				{Limit: 3, Scope: enums.ConcurrencyScopeFn},
+			},
+		},
 		inngestgo.EventTrigger("candidate/evaluate", nil),
 		func(ctx context.Context, input inngestgo.Input[CandidateEvaluateEvent]) (any, error) {
 			data := input.Event.Data
