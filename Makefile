@@ -29,6 +29,10 @@ test:
 test-one:
 	go test ./... -v -count=1 -run $(TEST)
 
+# Run E2E tests (requires docker-up + dev running)
+test-e2e:
+	go test -tags e2e -v -count=1 -timeout=120s ./tests/e2e/
+
 # Build API binary
 build:
 	go build -o bin/api ./apps/api/main.go
