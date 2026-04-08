@@ -299,6 +299,35 @@ func NewDurableRuntime(
 				return map[string]string{"asin": asin, "status": "eliminated"}, nil
 			}
 
+			// Step 2.5: Listing eligibility check (SP-API, not LLM — definitive)
+			eligible, _ := step.Run(ctx, "check-eligibility", func(ctx context.Context) (bool, error) {
+				if productSearcher == nil {
+					return true, nil // can't check, assume eligible
+				}
+				restrictions, err := productSearcher.CheckListingEligibility(ctx, []string{asin}, "US")
+				if err != nil {
+					slog.Warn("inngest: eligibility check failed, assuming eligible", "asin", asin, "error", err)
+					return true, nil // fail open
+				}
+				for _, r := range restrictions {
+					if !r.Allowed {
+						slog.Info("inngest: eliminated (listing restricted)", "asin", asin, "reason", r.Reason)
+						// Auto-learn: block this brand for future
+						brand, _ := enriched["brand"].(string)
+						if brand != "" && brandBlocklistSvc != nil {
+							brandBlocklistSvc.AutoBlock(ctx, tenantID, brand, asin,
+								fmt.Sprintf("Listing restricted: %s", r.Reason))
+						}
+						return false, nil
+					}
+				}
+				return true, nil
+			})
+
+			if !eligible {
+				return map[string]string{"asin": asin, "status": "restricted"}, nil
+			}
+
 			// Step 3: Gate/Risk agent (single LLM call ~15-30s)
 			gatingJSON, err := step.Run(ctx, "agent-gating", func(ctx context.Context) (string, error) {
 				gatingCfg := config.Agents["gating"]
