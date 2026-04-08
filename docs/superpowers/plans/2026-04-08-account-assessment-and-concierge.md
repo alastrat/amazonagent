@@ -16,21 +16,239 @@
 ## Dependency Graph
 
 ```
-Phase 1: Seller Profile + Eligibility Scan (foundation)
+Phase 0: Shared Catalog + Credit System (enables everything)
     │
-    ├── Phase 2: Strategy Brief + Versioning (depends on 1)
+    ├── Phase 1: Seller Profile + Eligibility Scan (depends on 0)
     │       │
-    │       ├── Phase 3: Daily Discovery Queue (depends on 2)
+    │       ├── Phase 2: Strategy Brief + Versioning (depends on 1)
+    │       │       │
+    │       │       ├── Phase 3: Daily Discovery Queue (depends on 2)
+    │       │       │
+    │       │       └── Phase 4: Onboarding Frontend (depends on 2)
     │       │
-    │       └── Phase 4: Onboarding Frontend (depends on 2)
+    │       └── Phase 5: RAG + Autoresearch (depends on 1, 2, 3)
+    │               │
+    │               └── Phase 6: Multi-Tenant Cohort Learning (depends on 5)
     │
-    └── Phase 5: RAG + Autoresearch (depends on 1, 2, 3)
-            │
-            └── Phase 6: Multi-Tenant Cohort Learning (depends on 5)
+    └── (Phase 0 also feeds into existing discovery engine — shared catalog
+         replaces per-tenant discovered_products for product data)
 ```
 
+Phase 0 is the new foundation — the shared catalog is a platform asset.
 Phases 3 and 4 are independent and can be parallelized after Phase 2.
 Phases 5 and 6 are the continuous improvement layer — can ship after Phases 1-4 are live.
+
+---
+
+## Phase 0: Shared Catalog + Credit System
+
+**Delivers:** A platform-wide product catalog that every tenant's scans enrich. Credit-based access model — cached products are free, fresh API calls cost credits. This unblocks the 300-ASIN assessment (it seeds the shared catalog) and creates a network effect.
+
+### Design: Two-Layer Catalog
+
+```
+SHARED LAYER (platform-wide, tenant-agnostic)
+├── product_catalog: ASIN, title, brand, category, BSR, seller_count,
+│   buy_box_price, estimated_margin, last_enriched_at
+├── brand_catalog: brand names, typical gating difficulty, categories
+└── Enriched by EVERY tenant's scans (anonymized)
+
+TENANT LAYER (per-tenant, private)
+├── tenant_product_eligibility: tenant_id, ASIN, eligible, reason, checked_at
+├── tenant_product_margins: tenant_id, ASIN, wholesale_cost, real_margin
+└── Only visible to the owning tenant
+```
+
+The existing `discovered_products` table (per-tenant) evolves into this split. Shared product data is universal. Tenant-specific eligibility and margin data stays private.
+
+### Credit Model
+
+| Action | Credit Cost | Notes |
+|--------|:----------:|-------|
+| Product lookup (cached, < 24h old) | 0 | Free — platform already has the data |
+| Product enrichment (fresh SP-API call) | 1 | Competitive pricing + seller count |
+| Eligibility check (SP-API restriction) | 1 | Per-ASIN listing restriction check |
+| Assessment scan (300 probes) | 300 | One-time on account connect |
+| Daily discovery (per product scanned) | 1 | Cached products are 0 |
+
+| Tier | Monthly Credits | Price |
+|------|:--------------:|:-----:|
+| Free | 500 | $0 |
+| Starter | 5,000 | $79/mo |
+| Growth | 25,000 | $199/mo |
+| Scale | 100,000 | $499/mo |
+
+Credits reset monthly. Unused credits don't roll over (keeps it simple). Assessment scan (300 credits) is free for all tiers on first connect.
+
+### Task 0.1: Shared Catalog Schema
+
+**Files:** Create migration
+
+- [ ] `010_shared_catalog.sql`:
+
+```sql
+-- Platform-wide product catalog (shared across all tenants)
+CREATE TABLE product_catalog (
+    asin TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    brand TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    bsr_rank INT,
+    seller_count INT,
+    buy_box_price NUMERIC(10,2),
+    estimated_margin_pct NUMERIC(5,2),
+    image_url TEXT,
+    last_enriched_at TIMESTAMPTZ,
+    enrichment_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_pc_brand ON product_catalog(brand);
+CREATE INDEX idx_pc_category ON product_catalog(category);
+CREATE INDEX idx_pc_stale ON product_catalog(last_enriched_at NULLS FIRST);
+
+-- Platform-wide brand catalog
+CREATE TABLE brand_catalog (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL UNIQUE,
+    typical_gating TEXT NOT NULL DEFAULT 'unknown',  -- open, brand_gated, category_gated
+    categories TEXT[] NOT NULL DEFAULT '{}',
+    product_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Per-tenant eligibility (private)
+CREATE TABLE tenant_product_eligibility (
+    tenant_id UUID NOT NULL,
+    asin TEXT NOT NULL REFERENCES product_catalog(asin),
+    eligible BOOLEAN NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, asin)
+);
+
+CREATE INDEX idx_tpe_tenant ON tenant_product_eligibility(tenant_id, eligible);
+
+-- Per-tenant margin data (private — from price lists)
+CREATE TABLE tenant_product_margins (
+    tenant_id UUID NOT NULL,
+    asin TEXT NOT NULL REFERENCES product_catalog(asin),
+    wholesale_cost NUMERIC(10,2) NOT NULL,
+    real_margin_pct NUMERIC(5,2),
+    source TEXT NOT NULL DEFAULT 'pricelist',  -- pricelist | manual
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, asin)
+);
+```
+
+- [ ] Verify migration runs
+
+### Task 0.2: Credit System Domain + Schema
+
+**Files:** Create `internal/domain/credits.go`, migration
+
+- [ ] Domain types:
+
+```go
+type CreditTier string
+const (
+    CreditTierFree    CreditTier = "free"
+    CreditTierStarter CreditTier = "starter"
+    CreditTierGrowth  CreditTier = "growth"
+    CreditTierScale   CreditTier = "scale"
+)
+
+type CreditAccount struct {
+    TenantID      TenantID
+    Tier          CreditTier
+    MonthlyLimit  int
+    UsedThisMonth int
+    ResetAt       time.Time
+}
+
+type CreditTransaction struct {
+    ID        string
+    TenantID  TenantID
+    Amount    int        // negative = spent, positive = granted
+    Action    string     // "eligibility_check", "enrichment", "assessment", "monthly_grant"
+    Reference string     // ASIN or scan job ID
+    CreatedAt time.Time
+}
+```
+
+- [ ] `011_credit_system.sql`:
+
+```sql
+CREATE TABLE credit_accounts (
+    tenant_id UUID PRIMARY KEY,
+    tier TEXT NOT NULL DEFAULT 'free',
+    monthly_limit INT NOT NULL DEFAULT 500,
+    used_this_month INT NOT NULL DEFAULT 0,
+    reset_at TIMESTAMPTZ NOT NULL DEFAULT (date_trunc('month', now()) + interval '1 month')
+);
+
+CREATE TABLE credit_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    amount INT NOT NULL,
+    action TEXT NOT NULL,
+    reference TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_ct_tenant ON credit_transactions(tenant_id, created_at DESC);
+```
+
+### Task 0.3: Port Interfaces
+
+**Files:** Create `internal/port/catalog_shared.go`, `internal/port/credits.go`
+
+- [ ] SharedCatalogRepo (UpsertProduct, GetByASIN, GetByASINs, SearchByCategory, GetStale)
+- [ ] BrandCatalogRepo (UpsertBrand, GetByName, ListByCategory)
+- [ ] TenantEligibilityRepo (Set, Get, GetByTenant, ListEligible)
+- [ ] TenantMarginRepo (Set, GetByASIN)
+- [ ] CreditAccountRepo (Get, Debit, Credit, ResetMonthly)
+- [ ] CreditTransactionRepo (Record, ListByTenant)
+
+### Task 0.4: Credit Service
+
+**Files:** Create `internal/service/credit_service.go`
+
+- [ ] `HasCredits(ctx, tenantID, amount)` → bool
+- [ ] `Spend(ctx, tenantID, amount, action, reference)` → error (fails if insufficient)
+- [ ] `GrantMonthly(ctx, tenantID)` — reset monthly credits based on tier
+- [ ] `GetBalance(ctx, tenantID)` → CreditAccount
+- [ ] Assessment scan is free on first connect (bypass credit check)
+- [ ] Cached product lookups cost 0 (check product_catalog.last_enriched_at < 24h)
+
+### Task 0.5: Shared Catalog Service
+
+**Files:** Create `internal/service/shared_catalog_service.go`
+
+- [ ] `EnrichProduct(ctx, tenantID, asin)` — if cached and fresh: free. If stale: SP-API call, costs 1 credit, updates shared catalog
+- [ ] `CheckEligibility(ctx, tenantID, asin)` — if cached: free. If not: SP-API call, costs 1 credit, stores in tenant_product_eligibility
+- [ ] `RecordFromScan(ctx, products [])` — after any tenant's scan, upsert shared catalog (enrichment_count++)
+- [ ] Integrates with existing discovery engine — replaces direct SP-API calls with credit-aware shared catalog lookups
+
+### Task 0.6: Inngest Monthly Credit Reset
+
+- [ ] Cron: 1st of each month, reset all credit accounts based on tier
+
+### Task 0.7: Credit API
+
+- [ ] `GET /credits` — current balance, tier, used/limit
+- [ ] `GET /credits/transactions` — transaction history
+- [ ] Wire into main.go
+
+### Task 0.8: Integrate With Existing Pipeline
+
+- [ ] FunnelService T3 (competitive pricing) → goes through shared catalog service (credit-aware)
+- [ ] Brand eligibility checks → go through shared catalog service
+- [ ] Assessment scan → seeds shared catalog + tenant eligibility
+- [ ] Every scan writes back to product_catalog (enrichment_count tracks how often a product has been looked up across all tenants)
+
+**CHECKPOINT 0:** Shared catalog exists. Credit system tracks usage. Fresh API calls cost credits, cached lookups are free. Every tenant's scans enrich the shared catalog for all future tenants.
 
 ---
 
@@ -343,11 +561,18 @@ The 300 probe ASINs need to be curated — real ASINs from real categories with 
 
 | Phase | What | Effort | Priority |
 |-------|------|--------|----------|
-| **1** | Seller Profile + Eligibility Scan | 1-2 weeks | **NOW** — solves the immediate "everything restricted" problem |
+| **0** | Shared Catalog + Credit System | 1 week | **NOW** — foundation for everything, unblocks assessment |
+| **1** | Seller Profile + Eligibility Scan | 1-2 weeks | **NOW** — solves the "everything restricted" problem |
 | **2** | Strategy Brief + Versioning | 1-2 weeks | **NOW** — the concierge value proposition |
 | **3** | Daily Discovery Queue | 1 week | **NEXT** — replaces manual campaigns |
 | **4** | Onboarding Frontend | 1-2 weeks | **NEXT** — the "Wealthfront moment" |
 | **5** | RAG + Autoresearch | 2-3 weeks | **LATER** — continuous improvement |
 | **6** | Multi-Tenant Cohort | 1 week | **LATER** — compounds over time |
 
-Phases 1-4 ship the concierge MVP. Phases 5-6 add the learning loop.
+Phases 0-4 ship the concierge MVP (~5-7 weeks). Phases 5-6 add the learning loop (~3-4 weeks).
+
+The shared catalog is Phase 0 because it:
+- Unblocks the 300-ASIN assessment (seeds the shared catalog)
+- Creates the network effect (every tenant enriches data for all)
+- Enables the credit model (monetization from day 1)
+- Replaces per-tenant `discovered_products` for shared product data
