@@ -54,30 +54,58 @@ Five repos have "batch" methods that loop individual INSERTs:
 | `suggestion_repo` | `CreateBatch` | ≤20 | 20 |
 | `tenant_eligibility_repo` | `SetBatch` | N | N |
 
+### Decision: Multi-row INSERT (not pgx.CopyFrom)
+
+We evaluated both approaches:
+
+| | `pgx.CopyFrom` | Multi-row INSERT ON CONFLICT |
+|---|---|---|
+| **Throughput** | ~50K rows/sec | ~10-20K rows/sec |
+| **At our max (300 rows)** | ~6ms | ~15-30ms |
+| **Upsert support** | No — needs temp table workaround | Native `ON CONFLICT DO UPDATE` |
+| **Temp table pattern** | CREATE TEMP → COPY → INSERT SELECT ON CONFLICT → DROP (4 statements, explicit txn) | Single SQL statement |
+| **Code complexity** | High (temp table lifecycle, txn wrapping, cleanup) | Low (one parameterized query) |
+| **Error handling** | Row-level errors hard to surface | Standard SQL errors |
+| **Testability** | Harder to mock (pgx-specific COPY API) | Just SQL — works with any mock |
+
+**Verdict:** Multi-row INSERT wins for our volumes. The speed difference (6ms vs 30ms at 300 rows) is imperceptible. COPY's advantage only matters at 10K+ rows. The temp table workaround for upsert negates the simplicity benefit.
+
+If we ever hit 50K+ row batches (e.g., nightly category scan at full scale), revisit COPY then.
+
 ### Fix
 
 Replace loops with multi-row INSERT:
 
 ```sql
+-- Insert-only tables (no conflict possible)
 INSERT INTO assessment_probe_results (fingerprint_id, tenant_id, asin, brand, category, tier, eligible, reason)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8),
        ($1, $2, $9, $10, $11, $12, $13, $14),
        ...
+
+-- Upsert tables (ON CONFLICT)
+INSERT INTO product_catalog (asin, title, brand, ...)
+VALUES ($1, $2, $3, ...), ($4, $5, $6, ...), ...
+ON CONFLICT (asin) DO UPDATE SET
+  title = COALESCE(NULLIF(EXCLUDED.title, ''), product_catalog.title),
+  ...
 ```
 
-For upsert cases (`UpsertProductBatch`, `SetBatch`), use multi-row INSERT with ON CONFLICT.
-
-`pgx.CopyFrom` is faster but doesn't support ON CONFLICT — use it only for insert-only tables (probe_results, credit_transactions). Use multi-row INSERT for upsert tables.
-
-Consider extracting a helper:
+Extract a shared helper in the postgres package:
 ```go
-func BatchInsert(ctx, pool, table, columns, rows) error
-func BatchUpsert(ctx, pool, table, columns, conflictColumns, rows) error
+// BatchInsert builds and executes a multi-row INSERT.
+// Chunks into groups of 50 to stay within Postgres parameter limits (65535 max).
+func BatchInsert(ctx context.Context, pool *pgxpool.Pool, table string, columns []string, rows [][]any) error
+
+// BatchUpsert builds and executes a multi-row INSERT ON CONFLICT DO UPDATE.
+func BatchUpsert(ctx context.Context, pool *pgxpool.Pool, table string, columns []string, conflictColumns []string, updateColumns []string, rows [][]any) error
 ```
 
 ### Impact
 
-Assessment scan: 300 round-trips → 1 (or a few chunks of 50). ~10x faster.
+Assessment scan: 300 round-trips → 6 chunks of 50 = 6 round-trips. ~50x fewer queries.
+Product batch upsert: N round-trips → N/50 chunks.
+Total improvement: ~300ms → ~30ms for 300-row assessment insert.
 
 ---
 
