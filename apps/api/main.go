@@ -129,6 +129,8 @@ func main() {
 	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, spapiClient, sharedCatalogSvc, idGen)
 	strategyVersionRepo := postgres.NewStrategyVersionRepo(pool)
 	strategySvc := service.NewStrategyService(strategyVersionRepo, idGen)
+	suggestionRepo := postgres.NewSuggestionRepo(pool)
+	discoveryQueueSvc := service.NewDiscoveryQueueService(strategySvc, funnelSvc, suggestionRepo, spapiClient, idGen)
 
 	// Durable runtime (Inngest) — optional, falls back to goroutine if unavailable
 	var durableRuntime *inngest.DurableRuntime
@@ -180,6 +182,7 @@ func main() {
 		Credit:         handler.NewCreditHandler(creditSvc),
 		Assessment:     handler.NewAssessmentHandler(assessmentSvc),
 		Strategy:       handler.NewStrategyHandler(strategySvc),
+		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)

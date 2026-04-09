@@ -25,6 +25,7 @@ type Handlers struct {
 	Credit     *handler.CreditHandler
 	Assessment *handler.AssessmentHandler
 	Strategy   *handler.StrategyHandler
+	Suggestion *handler.SuggestionHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -91,6 +92,11 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Get("/strategy/versions/{id}", h.Strategy.GetVersion)
 		r.Post("/strategy/versions/{id}/activate", h.Strategy.ActivateVersion)
 		r.Post("/strategy/versions/{id}/rollback", h.Strategy.RollbackToVersion)
+
+		r.Get("/suggestions", h.Suggestion.ListPending)
+		r.Get("/suggestions/all", h.Suggestion.ListAll)
+		r.Post("/suggestions/{id}/accept", h.Suggestion.Accept)
+		r.Post("/suggestions/{id}/dismiss", h.Suggestion.Dismiss)
 
 		r.Get("/settings", h.Settings.Get)
 		r.Put("/settings", h.Settings.Update)
