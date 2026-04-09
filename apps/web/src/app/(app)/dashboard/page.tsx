@@ -1,13 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
+import { useAssessmentStatus } from "@/hooks/use-assessment";
+import { useCredits } from "@/hooks/use-credits";
+import { usePendingSuggestions } from "@/hooks/use-suggestions";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { StatusPill } from "@/components/status-pill";
 import { ScoreBadge } from "@/components/score-badge";
 import { PriceListUploadDialog } from "@/components/price-list-upload-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
@@ -15,6 +20,12 @@ export default function DashboardPage() {
     queryKey: queryKeys.dashboard,
     queryFn: () => apiClient.getDashboardSummary(),
   });
+  const { data: assessment } = useAssessmentStatus(false);
+  const { data: credits } = useCredits();
+  const { data: suggestions } = usePendingSuggestions();
+
+  const pendingCount = suggestions?.filter((s: any) => s.status === "pending").length ?? 0;
+  const hasAssessment = assessment?.status === "completed";
 
   if (isLoading) return <div className="p-4">Loading...</div>;
 
@@ -30,10 +41,52 @@ export default function DashboardPage() {
         }
       />
 
+      {!hasAssessment && (
+        <Card>
+          <CardContent className="flex items-center justify-between py-4">
+            <div>
+              <p className="font-medium">Welcome! Complete your onboarding to get started.</p>
+              <p className="text-sm text-muted-foreground">
+                We will assess your account and build a custom sourcing strategy.
+              </p>
+            </div>
+            <Link href="/onboarding">
+              <Button>Get Started</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard title="Pending Review" value={data?.deals_pending_review ?? 0} description="Deals awaiting your decision" />
         <MetricCard title="Approved Deals" value={data?.deals_approved ?? 0} description="Ready for sourcing" />
         <MetricCard title="Active Campaigns" value={data?.active_campaigns ?? 0} description="Currently running" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {credits && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Credit Balance</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{credits.remaining}</div>
+              <p className="text-xs text-muted-foreground">
+                {credits.used}/{credits.monthly_limit} used ({credits.tier} tier)
+              </p>
+              {credits.reset_at && (
+                <p className="text-xs text-muted-foreground">
+                  Resets {new Date(credits.reset_at).toLocaleDateString()}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        <MetricCard
+          title="Pending Suggestions"
+          value={pendingCount}
+          description="Products awaiting your review"
+        />
       </div>
 
       <div>

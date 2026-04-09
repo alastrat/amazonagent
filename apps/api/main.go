@@ -113,6 +113,25 @@ func main() {
 	categoryScanSvc := service.NewCategoryScanService(browseNodeRepo, catalogSvc, funnelSvc, spapiClient, scanJobRepo, idGen)
 	brandIntelRepo := postgres.NewBrandIntelligenceRepo(pool)
 
+	// Shared catalog + credit system
+	sharedCatalogRepo := postgres.NewSharedCatalogRepo(pool)
+	brandCatalogRepo := postgres.NewBrandCatalogRepo(pool)
+	tenantEligibilityRepo := postgres.NewTenantEligibilityRepo(pool)
+	creditAccountRepo := postgres.NewCreditAccountRepo(pool)
+	creditTransactionRepo := postgres.NewCreditTransactionRepo(pool)
+	creditSvc := service.NewCreditService(creditAccountRepo, creditTransactionRepo, idGen)
+	sharedCatalogSvc := service.NewSharedCatalogService(sharedCatalogRepo, brandCatalogRepo, tenantEligibilityRepo, nil, spapiClient, creditSvc)
+	_ = sharedCatalogSvc // integrated with pipeline in Phase 1
+
+	// Assessment service
+	sellerProfileRepo := postgres.NewSellerProfileRepo(pool)
+	eligibilityFPRepo := postgres.NewEligibilityFingerprintRepo(pool)
+	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, spapiClient, sharedCatalogSvc, idGen)
+	strategyVersionRepo := postgres.NewStrategyVersionRepo(pool)
+	strategySvc := service.NewStrategyService(strategyVersionRepo, idGen)
+	suggestionRepo := postgres.NewSuggestionRepo(pool)
+	discoveryQueueSvc := service.NewDiscoveryQueueService(strategySvc, funnelSvc, suggestionRepo, spapiClient, idGen)
+
 	// Durable runtime (Inngest) — optional, falls back to goroutine if unavailable
 	var durableRuntime *inngest.DurableRuntime
 	inngestRuntime, err := inngest.NewDurableRuntime(
@@ -144,6 +163,7 @@ func main() {
 	} else {
 		slog.Info("scoring config ready", "tenant_id", defaultTenantID)
 	}
+	creditSvc.EnsureAccount(ctx, defaultTenantID, domain.CreditTierFree)
 
 	// Handlers
 	handlers := api.Handlers{
@@ -159,6 +179,10 @@ func main() {
 		Settings:       handler.NewSettingsHandler(tenantSettingsSvc),
 		Scan:           handler.NewScanHandler(durableRuntime),
 		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
+		Credit:         handler.NewCreditHandler(creditSvc),
+		Assessment:     handler.NewAssessmentHandler(assessmentSvc),
+		Strategy:       handler.NewStrategyHandler(strategySvc),
+		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
