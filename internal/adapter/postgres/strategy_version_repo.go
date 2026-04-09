@@ -28,12 +28,21 @@ func (r *StrategyVersionRepo) Create(ctx context.Context, sv *domain.StrategyVer
 		return fmt.Errorf("marshal search params: %w", err)
 	}
 
+	// Convert empty strings to nil for nullable UUID columns
+	var scoringConfigID, parentVersionID any
+	if sv.ScoringConfigID != "" {
+		scoringConfigID = sv.ScoringConfigID
+	}
+	if sv.ParentVersionID != "" {
+		parentVersionID = sv.ParentVersionID
+	}
+
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO strategy_versions (id, tenant_id, version_number, goals, search_params, scoring_config_id,
 			status, parent_version_id, promoted_from_experiment_id, change_reason, created_by, created_at, activated_at, rolled_back_at)
 		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	`, sv.ID, sv.TenantID, sv.VersionNumber, string(goalsJSON), string(paramsJSON), sv.ScoringConfigID,
-		sv.Status, sv.ParentVersionID, sv.PromotedFromExperimentID, sv.ChangeReason, sv.CreatedBy, sv.CreatedAt, sv.ActivatedAt, sv.RolledBackAt)
+	`, sv.ID, sv.TenantID, sv.VersionNumber, string(goalsJSON), string(paramsJSON), scoringConfigID,
+		sv.Status, parentVersionID, sv.PromotedFromExperimentID, sv.ChangeReason, sv.CreatedBy, sv.CreatedAt, sv.ActivatedAt, sv.RolledBackAt)
 	if err != nil {
 		return fmt.Errorf("create strategy version: %w", err)
 	}

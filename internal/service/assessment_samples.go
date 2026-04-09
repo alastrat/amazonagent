@@ -133,11 +133,23 @@ func SPAPIASINFinder(searcher interface {
 // universally accessible. These serve as the baseline for assessment accuracy.
 func StaticCalibrationProbes() []domain.AssessmentProbe {
 	return []domain.AssessmentProbe{
-		// Books — almost always open
-		{ASIN: "B0CFDK3PC9", Category: "Books", Brand: "", Tier: "calibration", ExpectedGating: "open"},
-		// Basic office supplies
-		{ASIN: "B00006IE8I", Category: "Office Products", Brand: "Scotch", Tier: "calibration", ExpectedGating: "open"},
-		// Generic home product
-		{ASIN: "B000VE3BEA", Category: "Home & Kitchen", Brand: "", Tier: "calibration", ExpectedGating: "open"},
+		// Office supplies — commonly open
+		{ASIN: "B00006IE70", Category: "Office Products", Brand: "Scotch", Tier: "calibration", ExpectedGating: "open"},
+		{ASIN: "B0000AQODM", Category: "Office Products", Brand: "Post-it", Tier: "calibration", ExpectedGating: "open"},
+		// Home & Kitchen — commonly open
+		{ASIN: "B002YK46UQ", Category: "Home & Kitchen", Brand: "Rubbermaid", Tier: "mid", ExpectedGating: "open"},
+		{ASIN: "B00004OCKR", Category: "Home & Kitchen", Brand: "Rubbermaid", Tier: "mid", ExpectedGating: "open"},
+		// Tools
+		{ASIN: "B00004SBDR", Category: "Tools & Home Improvement", Brand: "3M", Tier: "top", ExpectedGating: "open"},
+		// Sports
+		{ASIN: "B014US3FQI", Category: "Sports & Outdoors", Brand: "", Tier: "generic", ExpectedGating: "open"},
+		// Beauty — commonly gated
+		{ASIN: "B004Y9GZDO", Category: "Beauty & Personal Care", Brand: "CeraVe", Tier: "top", ExpectedGating: "brand_gated"},
+		// Grocery — commonly gated
+		{ASIN: "B00CQ7ELOM", Category: "Grocery & Gourmet Food", Brand: "KIND", Tier: "top", ExpectedGating: "brand_gated"},
+		// Electronics
+		{ASIN: "B09V3KXJPB", Category: "Electronics", Brand: "Anker", Tier: "mid", ExpectedGating: "open"},
+		// Pet
+		{ASIN: "B000084E6V", Category: "Pet Supplies", Brand: "KONG", Tier: "mid", ExpectedGating: "open"},
 	}
 }
