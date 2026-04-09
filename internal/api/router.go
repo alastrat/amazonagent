@@ -22,6 +22,7 @@ type Handlers struct {
 	Settings  *handler.SettingsHandler
 	Scan      *handler.ScanHandler
 	Catalog   *handler.CatalogHandler
+	Credit    *handler.CreditHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -75,6 +76,9 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Get("/catalog/brands", h.Catalog.ListBrands)
 		r.Get("/catalog/brands/{id}/products", h.Catalog.ListBrandProducts)
 		r.Get("/catalog/stats", h.Catalog.Stats)
+
+		r.Get("/credits", h.Credit.GetBalance)
+		r.Get("/credits/transactions", h.Credit.GetTransactions)
 
 		r.Get("/settings", h.Settings.Get)
 		r.Put("/settings", h.Settings.Update)
