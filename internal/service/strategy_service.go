@@ -129,9 +129,13 @@ func (s *StrategyService) RollbackToVersion(ctx context.Context, tenantID domain
 		return nil, err
 	}
 
+	fromVersion := 0
+	if current != nil {
+		fromVersion = current.VersionNumber
+	}
 	slog.Info("strategy: rolled back",
 		"tenant_id", tenantID,
-		"from_version", current.VersionNumber,
+		"from_version", fromVersion,
 		"to_version_source", target.VersionNumber,
 		"new_version", versionNum)
 
