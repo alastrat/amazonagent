@@ -124,7 +124,7 @@ func (s *DiscoveryQueueService) RunDailyDiscovery(ctx context.Context, tenantID 
 			StrategyVersionID: strategy.ID,
 			ASIN:              surv.ASIN,
 			Title:             surv.Title,
-			Brand:             surv.DiscoveredProduct.Category,
+			Brand:             surv.DiscoveredProduct.BrandID, // BrandID from catalog; empty if not resolved
 			Category:          surv.Category,
 			BuyBoxPrice:       surv.BuyBoxPrice,
 			EstimatedMargin:   surv.EstimatedMarginPct,
@@ -153,13 +153,13 @@ func (s *DiscoveryQueueService) RunDailyDiscovery(ctx context.Context, tenantID 
 // AcceptSuggestion marks a suggestion as accepted. The caller should create a deal
 // from the suggestion data and pass the deal ID.
 func (s *DiscoveryQueueService) AcceptSuggestion(ctx context.Context, tenantID domain.TenantID, suggestionID domain.SuggestionID, dealID domain.DealID) error {
-	return s.suggestions.Accept(ctx, suggestionID, dealID)
+	return s.suggestions.Accept(ctx, tenantID, suggestionID, dealID)
 }
 
 // DismissSuggestion marks a suggestion as dismissed.
 // NOTE: This does NOT train preferences — dismissals are not used to bias future suggestions.
-func (s *DiscoveryQueueService) DismissSuggestion(ctx context.Context, suggestionID domain.SuggestionID) error {
-	return s.suggestions.Dismiss(ctx, suggestionID)
+func (s *DiscoveryQueueService) DismissSuggestion(ctx context.Context, tenantID domain.TenantID, suggestionID domain.SuggestionID) error {
+	return s.suggestions.Dismiss(ctx, tenantID, suggestionID)
 }
 
 // ListPending returns pending suggestions for a tenant.

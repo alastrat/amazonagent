@@ -77,19 +77,21 @@ func (r *SuggestionRepo) ListAll(ctx context.Context, tenantID domain.TenantID, 
 	return r.scanRows(rows)
 }
 
-func (r *SuggestionRepo) Accept(ctx context.Context, id domain.SuggestionID, dealID domain.DealID) error {
+func (r *SuggestionRepo) Accept(ctx context.Context, tenantID domain.TenantID, id domain.SuggestionID, dealID domain.DealID) error {
 	now := time.Now()
 	_, err := r.pool.Exec(ctx, `
-		UPDATE discovery_suggestions SET status = 'accepted', deal_id = $2, resolved_at = $3 WHERE id = $1
-	`, id, dealID, now)
+		UPDATE discovery_suggestions SET status = 'accepted', deal_id = $3, resolved_at = $4
+		WHERE id = $1 AND tenant_id = $2
+	`, id, tenantID, dealID, now)
 	return err
 }
 
-func (r *SuggestionRepo) Dismiss(ctx context.Context, id domain.SuggestionID) error {
+func (r *SuggestionRepo) Dismiss(ctx context.Context, tenantID domain.TenantID, id domain.SuggestionID) error {
 	now := time.Now()
 	_, err := r.pool.Exec(ctx, `
-		UPDATE discovery_suggestions SET status = 'dismissed', resolved_at = $2 WHERE id = $1
-	`, id, now)
+		UPDATE discovery_suggestions SET status = 'dismissed', resolved_at = $3
+		WHERE id = $1 AND tenant_id = $2
+	`, id, tenantID, now)
 	return err
 }
 

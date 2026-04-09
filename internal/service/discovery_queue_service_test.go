@@ -108,7 +108,7 @@ func (r *mockSuggestionRepo) ListAll(_ context.Context, tenantID domain.TenantID
 	return result, nil
 }
 
-func (r *mockSuggestionRepo) Accept(_ context.Context, id domain.SuggestionID, dealID domain.DealID) error {
+func (r *mockSuggestionRepo) Accept(_ context.Context, _ domain.TenantID, id domain.SuggestionID, dealID domain.DealID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.acceptErr != nil {
@@ -126,7 +126,7 @@ func (r *mockSuggestionRepo) Accept(_ context.Context, id domain.SuggestionID, d
 	return fmt.Errorf("suggestion %s not found", id)
 }
 
-func (r *mockSuggestionRepo) Dismiss(_ context.Context, id domain.SuggestionID) error {
+func (r *mockSuggestionRepo) Dismiss(_ context.Context, _ domain.TenantID, id domain.SuggestionID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.dismissErr != nil {
@@ -751,7 +751,7 @@ func TestDismissSuggestion_MarksAsDismissed(t *testing.T) {
 	}
 	suggRepo.suggestions = append(suggRepo.suggestions, suggestion)
 
-	err := svc.DismissSuggestion(ctx, "sugg-2")
+	err := svc.DismissSuggestion(ctx, discoveryTenantID, "sugg-2")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -776,7 +776,7 @@ func TestDismissSuggestion_NotFoundReturnsError(t *testing.T) {
 	svc, _, _, _, _ := newDiscoveryTestService()
 	ctx := context.Background()
 
-	err := svc.DismissSuggestion(ctx, "nonexistent")
+	err := svc.DismissSuggestion(ctx, discoveryTenantID, "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent suggestion")
 	}

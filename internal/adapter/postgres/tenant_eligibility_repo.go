@@ -88,13 +88,14 @@ func (r *TenantEligibilityRepo) ListEligible(ctx context.Context, tenantID domai
 		WHERE tpe.tenant_id = $1 AND tpe.eligible = true
 	`
 	args := []any{tenantID}
+	argN := 2
 	if category != "" {
-		query += " AND pc.category ILIKE $3"
-		args = append(args, limit, "%"+category+"%")
-	} else {
-		args = append(args, limit)
+		query += fmt.Sprintf(" AND pc.category ILIKE $%d", argN)
+		args = append(args, "%"+category+"%")
+		argN++
 	}
-	query += fmt.Sprintf(" LIMIT $%d", len(args))
+	query += fmt.Sprintf(" LIMIT $%d", argN)
+	args = append(args, limit)
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {

@@ -52,8 +52,9 @@ func (h *SuggestionHandler) Accept(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SuggestionHandler) Dismiss(w http.ResponseWriter, r *http.Request) {
+	ac := middleware.GetAuthContext(r.Context())
 	id := chi.URLParam(r, "id")
-	if err := h.queue.DismissSuggestion(r.Context(), domain.SuggestionID(id)); err != nil {
+	if err := h.queue.DismissSuggestion(r.Context(), ac.TenantID, domain.SuggestionID(id)); err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to dismiss suggestion")
 		return
 	}
