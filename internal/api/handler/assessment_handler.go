@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
@@ -40,10 +41,15 @@ func (h *AssessmentHandler) Start(w http.ResponseWriter, r *http.Request) {
 
 	// Trigger Inngest workflow for the async scan + strategy generation
 	if h.durableRuntime != nil {
+		slog.Info("assessment: triggering inngest workflow", "tenant_id", ac.TenantID)
 		if err := h.durableRuntime.TriggerAssessment(r.Context(), ac.TenantID, req.AccountAgeDays, req.ActiveListings, req.StatedCapital); err != nil {
+			slog.Error("assessment: failed to trigger inngest", "tenant_id", ac.TenantID, "error", err)
 			response.Error(w, http.StatusInternalServerError, "failed to trigger assessment workflow: "+err.Error())
 			return
 		}
+		slog.Info("assessment: inngest event sent", "tenant_id", ac.TenantID)
+	} else {
+		slog.Warn("assessment: no durable runtime available, scan will not run")
 	}
 
 	response.JSON(w, http.StatusOK, profile)
