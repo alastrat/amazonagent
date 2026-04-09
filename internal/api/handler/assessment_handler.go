@@ -4,17 +4,19 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/middleware"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/response"
 	"github.com/pluriza/fba-agent-orchestrator/internal/service"
 )
 
 type AssessmentHandler struct {
-	assessment *service.AssessmentService
+	assessment     *service.AssessmentService
+	durableRuntime *inngest.DurableRuntime
 }
 
-func NewAssessmentHandler(assessment *service.AssessmentService) *AssessmentHandler {
-	return &AssessmentHandler{assessment: assessment}
+func NewAssessmentHandler(assessment *service.AssessmentService, durableRuntime *inngest.DurableRuntime) *AssessmentHandler {
+	return &AssessmentHandler{assessment: assessment, durableRuntime: durableRuntime}
 }
 
 func (h *AssessmentHandler) Start(w http.ResponseWriter, r *http.Request) {
@@ -29,10 +31,19 @@ func (h *AssessmentHandler) Start(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&req)
 	}
 
+	// Create profile synchronously
 	profile, err := h.assessment.StartAssessment(r.Context(), ac.TenantID, req.AccountAgeDays, req.ActiveListings, req.StatedCapital)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to start assessment: "+err.Error())
 		return
+	}
+
+	// Trigger Inngest workflow for the async scan + strategy generation
+	if h.durableRuntime != nil {
+		if err := h.durableRuntime.TriggerAssessment(r.Context(), ac.TenantID, req.AccountAgeDays, req.ActiveListings, req.StatedCapital); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to trigger assessment workflow: "+err.Error())
+			return
+		}
 	}
 
 	response.JSON(w, http.StatusOK, profile)

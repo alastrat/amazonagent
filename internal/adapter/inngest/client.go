@@ -49,6 +49,8 @@ func NewDurableRuntime(
 	catalogSvc *service.CatalogService,
 	brandIntelRepo port.BrandIntelligenceRepo,
 	productSearcher port.ProductSearcher,
+	assessmentSvc *service.AssessmentService,
+	strategySvc *service.StrategyService,
 ) (*DurableRuntime, error) {
 	client, err := inngestgo.NewClient(inngestgo.ClientOpts{
 		AppID: "fba-orchestrator",
@@ -896,7 +898,97 @@ func NewDurableRuntime(
 		)
 	}
 
+	// =========================================================
+	// Function 7: run-assessment (eligibility scan + strategy generation)
+	// Triggered when a seller starts onboarding
+	// =========================================================
+	type AssessmentRequestedEvent struct {
+		TenantID       string  `json:"tenant_id"`
+		AccountAgeDays int     `json:"account_age_days"`
+		ActiveListings int     `json:"active_listings"`
+		StatedCapital  float64 `json:"stated_capital"`
+	}
+
+	if assessmentSvc != nil {
+		inngestgo.CreateFunction(
+			client,
+			inngestgo.FunctionOpts{ID: "run-assessment", Name: "Run Account Assessment", Retries: &retries},
+			inngestgo.EventTrigger("assessment/requested", nil),
+			func(ctx context.Context, input inngestgo.Input[AssessmentRequestedEvent]) (any, error) {
+				data := input.Event.Data
+				tenantID := domain.TenantID(data.TenantID)
+
+				slog.Info("inngest[run-assessment]: started", "tenant_id", data.TenantID)
+
+				// Step 1: Run eligibility scan with static calibration probes
+				fpJSON, err := step.Run(ctx, "scan-eligibility", func(ctx context.Context) (string, error) {
+					probes := service.StaticCalibrationProbes()
+					fp, err := assessmentSvc.RunEligibilityScan(ctx, tenantID, probes)
+					if err != nil {
+						return "", err
+					}
+					if fp == nil {
+						return "{}", nil
+					}
+					b, _ := json.Marshal(fp)
+					return string(b), nil
+				})
+				if err != nil {
+					slog.Error("inngest[run-assessment]: scan failed", "tenant_id", data.TenantID, "error", err)
+					assessmentSvc.FailAssessment(ctx, tenantID)
+					return map[string]string{"status": "failed", "error": err.Error()}, nil
+				}
+
+				// Step 2: Complete assessment
+				_, err = step.Run(ctx, "complete-assessment", func(ctx context.Context) (string, error) {
+					return "done", assessmentSvc.CompleteAssessment(ctx, tenantID)
+				})
+				if err != nil {
+					slog.Error("inngest[run-assessment]: complete failed", "tenant_id", data.TenantID, "error", err)
+					return nil, err
+				}
+
+				// Step 3: Generate initial strategy from fingerprint
+				if strategySvc != nil {
+					step.Run(ctx, "generate-strategy", func(ctx context.Context) (string, error) {
+						var fp domain.EligibilityFingerprint
+						json.Unmarshal([]byte(fpJSON), &fp)
+
+						archetype := domain.ClassifyArchetype(data.AccountAgeDays, data.ActiveListings, data.StatedCapital)
+						sv, err := strategySvc.GenerateInitialStrategy(ctx, tenantID, &fp, archetype)
+						if err != nil {
+							slog.Error("inngest[run-assessment]: strategy generation failed", "tenant_id", data.TenantID, "error", err)
+							return "", err
+						}
+						slog.Info("inngest[run-assessment]: strategy generated",
+							"tenant_id", data.TenantID,
+							"version", sv.VersionNumber,
+							"goals", len(sv.Goals))
+						return string(sv.ID), nil
+					})
+				}
+
+				slog.Info("inngest[run-assessment]: completed", "tenant_id", data.TenantID)
+				return map[string]string{"status": "completed"}, nil
+			},
+		)
+	}
+
 	return &DurableRuntime{client: client}, nil
+}
+
+// TriggerAssessment sends an assessment/requested event.
+func (r *DurableRuntime) TriggerAssessment(ctx context.Context, tenantID domain.TenantID, accountAgeDays int, activeListings int, statedCapital float64) error {
+	_, err := r.client.Send(ctx, inngestgo.Event{
+		Name: "assessment/requested",
+		Data: map[string]any{
+			"tenant_id":        string(tenantID),
+			"account_age_days": accountAgeDays,
+			"active_listings":  activeListings,
+			"stated_capital":   statedCapital,
+		},
+	})
+	return err
 }
 
 // TriggerCategoryScan sends a manual category scan event.

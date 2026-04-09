@@ -140,6 +140,7 @@ func main() {
 		campaignRepo, scoringRepo, dealSvc,
 		priceListScanner, funnelSvc, categoryScanSvc,
 		catalogSvc, brandIntelRepo, spapiClient,
+		assessmentSvc, strategySvc,
 	)
 	if err != nil {
 		slog.Warn("inngest not available, using goroutine fallback", "error", err)
@@ -180,7 +181,7 @@ func main() {
 		Scan:           handler.NewScanHandler(durableRuntime),
 		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
 		Credit:         handler.NewCreditHandler(creditSvc),
-		Assessment:     handler.NewAssessmentHandler(assessmentSvc),
+		Assessment:     handler.NewAssessmentHandler(assessmentSvc, durableRuntime),
 		Strategy:       handler.NewStrategyHandler(strategySvc),
 		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
 	}
