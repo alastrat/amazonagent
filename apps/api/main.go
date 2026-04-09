@@ -123,7 +123,10 @@ func main() {
 	sharedCatalogSvc := service.NewSharedCatalogService(sharedCatalogRepo, brandCatalogRepo, tenantEligibilityRepo, nil, spapiClient, creditSvc)
 	_ = sharedCatalogSvc // integrated with pipeline in Phase 1
 
-	// Credit account ensured below after defaultTenantID is defined
+	// Assessment service
+	sellerProfileRepo := postgres.NewSellerProfileRepo(pool)
+	eligibilityFPRepo := postgres.NewEligibilityFingerprintRepo(pool)
+	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, spapiClient, sharedCatalogSvc, idGen)
 
 	// Durable runtime (Inngest) — optional, falls back to goroutine if unavailable
 	var durableRuntime *inngest.DurableRuntime
@@ -173,6 +176,7 @@ func main() {
 		Scan:           handler.NewScanHandler(durableRuntime),
 		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
 		Credit:         handler.NewCreditHandler(creditSvc),
+		Assessment:     handler.NewAssessmentHandler(assessmentSvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
