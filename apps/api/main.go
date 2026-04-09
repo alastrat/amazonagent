@@ -127,6 +127,8 @@ func main() {
 	sellerProfileRepo := postgres.NewSellerProfileRepo(pool)
 	eligibilityFPRepo := postgres.NewEligibilityFingerprintRepo(pool)
 	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, spapiClient, sharedCatalogSvc, idGen)
+	strategyVersionRepo := postgres.NewStrategyVersionRepo(pool)
+	strategySvc := service.NewStrategyService(strategyVersionRepo, idGen)
 
 	// Durable runtime (Inngest) — optional, falls back to goroutine if unavailable
 	var durableRuntime *inngest.DurableRuntime
@@ -177,6 +179,7 @@ func main() {
 		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
 		Credit:         handler.NewCreditHandler(creditSvc),
 		Assessment:     handler.NewAssessmentHandler(assessmentSvc),
+		Strategy:       handler.NewStrategyHandler(strategySvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
