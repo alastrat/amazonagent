@@ -193,6 +193,108 @@ export interface UploadFunnelResponse {
   funnel: FunnelStats;
 }
 
+// --- Concierge types ---
+
+export type SellerArchetype = "greenhorn" | "ra_to_wholesale" | "expanding_pro" | "capital_rich";
+export type AssessmentStatus = "pending" | "running" | "completed" | "failed";
+
+export interface SellerProfile {
+  id: string;
+  tenant_id: string;
+  archetype: SellerArchetype;
+  account_age_days: number;
+  active_listings: number;
+  stated_capital: number;
+  assessment_status: AssessmentStatus;
+  assessed_at?: string;
+}
+
+export interface CategoryEligibility {
+  category: string;
+  probe_count: number;
+  open_count: number;
+  gated_count: number;
+  open_rate: number;
+}
+
+export interface EligibilityFingerprint {
+  id: string;
+  tenant_id: string;
+  categories: CategoryEligibility[];
+  brand_results: Record<string, unknown>[];
+  total_probes: number;
+  total_eligible: number;
+  total_restricted: number;
+  overall_open_rate: number;
+  confidence: number;
+}
+
+export type StrategyStatus = "draft" | "active" | "rolled_back" | "archived";
+
+export interface StrategyGoal {
+  id: string;
+  type: "revenue" | "profit";
+  target_amount: number;
+  currency: string;
+  timeframe_start: string;
+  timeframe_end: string;
+  target_categories: string[];
+  current_progress: number;
+}
+
+export interface StrategyVersion {
+  id: string;
+  tenant_id: string;
+  version_number: number;
+  goals: StrategyGoal[];
+  search_params: Record<string, unknown>;
+  status: StrategyStatus;
+  parent_version_id?: string;
+  change_reason?: string;
+  created_by: string;
+  created_at: string;
+  activated_at?: string;
+}
+
+export type SuggestionStatus = "pending" | "accepted" | "dismissed";
+
+export interface DiscoverySuggestion {
+  id: string;
+  tenant_id: string;
+  strategy_version_id: string;
+  asin: string;
+  title: string;
+  brand: string;
+  category: string;
+  buy_box_price: number;
+  estimated_margin_pct: number;
+  bsr_rank: number;
+  seller_count: number;
+  reason: string;
+  status: SuggestionStatus;
+  deal_id?: string;
+  created_at: string;
+}
+
+export interface CreditAccount {
+  tier: string;
+  monthly_limit: number;
+  used: number;
+  remaining: number;
+  reset_at: string;
+}
+
+export interface CreditTransaction {
+  id: string;
+  tenant_id: string;
+  amount: number;
+  balance_after: number;
+  description: string;
+  created_at: string;
+}
+
+// --- End concierge types ---
+
 export type DiscoveryCadence = "nightly" | "twice_daily" | "weekly";
 
 export interface DiscoveryConfig {

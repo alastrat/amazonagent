@@ -13,6 +13,12 @@ import type {
   CatalogStats,
   ScanJob,
   UploadFunnelResponse,
+  SellerProfile,
+  EligibilityFingerprint,
+  StrategyVersion,
+  DiscoverySuggestion,
+  CreditAccount,
+  CreditTransaction,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -170,6 +176,81 @@ class ApiClient {
 
   getScan(id: string) {
     return this.fetch<ScanJob>(`/scans/${id}`);
+  }
+
+  // --- Assessment ---
+
+  startAssessment(data: { account_age_days: number; active_listings: number; stated_capital: number }) {
+    return this.fetch<SellerProfile>("/assessment/start", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  getAssessmentStatus() {
+    return this.fetch<{ status: string; archetype: string }>("/assessment/status");
+  }
+
+  getAssessmentProfile() {
+    return this.fetch<{ profile: SellerProfile; fingerprint: EligibilityFingerprint }>("/assessment/profile");
+  }
+
+  // --- Strategy ---
+
+  getActiveStrategy() {
+    return this.fetch<StrategyVersion>("/strategy");
+  }
+
+  getStrategyVersions() {
+    return this.fetch<StrategyVersion[]>("/strategy/versions");
+  }
+
+  getStrategyVersion(id: string) {
+    return this.fetch<StrategyVersion>(`/strategy/versions/${id}`);
+  }
+
+  activateStrategyVersion(id: string) {
+    return this.fetch<{ status: string }>(`/strategy/versions/${id}/activate`, {
+      method: "POST",
+    });
+  }
+
+  rollbackStrategyVersion(id: string) {
+    return this.fetch<StrategyVersion>(`/strategy/versions/${id}/rollback`, {
+      method: "POST",
+    });
+  }
+
+  // --- Suggestions ---
+
+  getPendingSuggestions() {
+    return this.fetch<DiscoverySuggestion[]>("/suggestions");
+  }
+
+  getAllSuggestions() {
+    return this.fetch<DiscoverySuggestion[]>("/suggestions/all");
+  }
+
+  acceptSuggestion(id: string) {
+    return this.fetch<{ status: string }>(`/suggestions/${id}/accept`, {
+      method: "POST",
+    });
+  }
+
+  dismissSuggestion(id: string) {
+    return this.fetch<{ status: string }>(`/suggestions/${id}/dismiss`, {
+      method: "POST",
+    });
+  }
+
+  // --- Credits ---
+
+  getCredits() {
+    return this.fetch<CreditAccount>("/credits");
+  }
+
+  getCreditTransactions() {
+    return this.fetch<CreditTransaction[]>("/credits/transactions");
   }
 }
 
