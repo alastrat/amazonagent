@@ -30,12 +30,14 @@ func (r *TenantEligibilityRepo) Set(ctx context.Context, e *domain.TenantEligibi
 }
 
 func (r *TenantEligibilityRepo) SetBatch(ctx context.Context, eligibilities []domain.TenantEligibility) error {
-	for i := range eligibilities {
-		if err := r.Set(ctx, &eligibilities[i]); err != nil {
-			return err
-		}
+	rows := make([][]any, len(eligibilities))
+	for i, e := range eligibilities {
+		rows[i] = []any{e.TenantID, e.ASIN, e.Eligible, e.Reason, e.CheckedAt}
 	}
-	return nil
+	return BatchUpsert(ctx, r.pool, "tenant_product_eligibility",
+		[]string{"tenant_id", "asin", "eligible", "reason", "checked_at"},
+		[]string{"tenant_id", "asin"},
+		[]string{"eligible", "reason", "checked_at"}, rows)
 }
 
 func (r *TenantEligibilityRepo) Get(ctx context.Context, tenantID domain.TenantID, asin string) (*domain.TenantEligibility, error) {

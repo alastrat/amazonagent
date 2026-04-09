@@ -80,28 +80,20 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 }
 
 func (r *EligibilityFingerprintRepo) SaveProbeResults(ctx context.Context, fingerprintID string, tenantID domain.TenantID, results []domain.BrandProbeResult) error {
-	for _, res := range results {
-		_, err := r.pool.Exec(ctx, `
-			INSERT INTO assessment_probe_results (fingerprint_id, tenant_id, asin, brand, category, tier, eligible, reason)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, fingerprintID, tenantID, res.ASIN, res.Brand, res.Category, res.Tier, res.Eligible, res.Reason)
-		if err != nil {
-			return fmt.Errorf("save probe result: %w", err)
-		}
+	rows := make([][]any, len(results))
+	for i, res := range results {
+		rows[i] = []any{fingerprintID, tenantID, res.ASIN, res.Brand, res.Category, res.Tier, res.Eligible, res.Reason}
 	}
-	return nil
+	return BatchInsert(ctx, r.pool, "assessment_probe_results",
+		[]string{"fingerprint_id", "tenant_id", "asin", "brand", "category", "tier", "eligible", "reason"}, rows)
 }
 
 func (r *EligibilityFingerprintRepo) SaveCategoryEligibilities(ctx context.Context, fingerprintID string, tenantID domain.TenantID, categories []domain.CategoryEligibility) error {
-	for _, cat := range categories {
-		_, err := r.pool.Exec(ctx, `
-			INSERT INTO category_eligibilities (fingerprint_id, tenant_id, category, probe_count, open_count, gated_count, open_rate)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, fingerprintID, tenantID, cat.Category, cat.ProbeCount, cat.OpenCount, cat.GatedCount, cat.OpenRate)
-		if err != nil {
-			return fmt.Errorf("save category eligibility: %w", err)
-		}
+	rows := make([][]any, len(categories))
+	for i, cat := range categories {
+		rows[i] = []any{fingerprintID, tenantID, cat.Category, cat.ProbeCount, cat.OpenCount, cat.GatedCount, cat.OpenRate}
 	}
-	return nil
+	return BatchInsert(ctx, r.pool, "category_eligibilities",
+		[]string{"fingerprint_id", "tenant_id", "category", "probe_count", "open_count", "gated_count", "open_rate"}, rows)
 }
 

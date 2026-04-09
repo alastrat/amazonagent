@@ -31,12 +31,14 @@ func (r *SuggestionRepo) Create(ctx context.Context, s *domain.DiscoverySuggesti
 }
 
 func (r *SuggestionRepo) CreateBatch(ctx context.Context, suggestions []domain.DiscoverySuggestion) error {
-	for i := range suggestions {
-		if err := r.Create(ctx, &suggestions[i]); err != nil {
-			return err
-		}
+	rows := make([][]any, len(suggestions))
+	for i, s := range suggestions {
+		rows[i] = []any{s.ID, s.TenantID, s.StrategyVersionID, s.GoalID, s.ASIN, s.Title, s.Brand, s.Category,
+			s.BuyBoxPrice, s.EstimatedMargin, s.BSRRank, s.SellerCount, s.Reason, s.Status, s.CreatedAt}
 	}
-	return nil
+	return BatchInsert(ctx, r.pool, "discovery_suggestions",
+		[]string{"id", "tenant_id", "strategy_version_id", "goal_id", "asin", "title", "brand", "category",
+			"buy_box_price", "estimated_margin_pct", "bsr_rank", "seller_count", "reason", "status", "created_at"}, rows)
 }
 
 func (r *SuggestionRepo) GetByID(ctx context.Context, tenantID domain.TenantID, id domain.SuggestionID) (*domain.DiscoverySuggestion, error) {
@@ -79,20 +81,32 @@ func (r *SuggestionRepo) ListAll(ctx context.Context, tenantID domain.TenantID, 
 
 func (r *SuggestionRepo) Accept(ctx context.Context, tenantID domain.TenantID, id domain.SuggestionID, dealID domain.DealID) error {
 	now := time.Now()
-	_, err := r.pool.Exec(ctx, `
-		UPDATE discovery_suggestions SET status = 'accepted', deal_id = $3, resolved_at = $4
-		WHERE id = $1 AND tenant_id = $2
-	`, id, tenantID, dealID, now)
-	return err
+	result, err := r.pool.Exec(ctx, `
+		UPDATE discovery_suggestions SET status = $5, deal_id = $3, resolved_at = $4
+		WHERE id = $1 AND tenant_id = $2 AND status = $6
+	`, id, tenantID, dealID, now, string(domain.SuggestionStatusAccepted), string(domain.SuggestionStatusPending))
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("suggestion %s not found or already resolved", id)
+	}
+	return nil
 }
 
 func (r *SuggestionRepo) Dismiss(ctx context.Context, tenantID domain.TenantID, id domain.SuggestionID) error {
 	now := time.Now()
-	_, err := r.pool.Exec(ctx, `
-		UPDATE discovery_suggestions SET status = 'dismissed', resolved_at = $3
-		WHERE id = $1 AND tenant_id = $2
-	`, id, tenantID, now)
-	return err
+	result, err := r.pool.Exec(ctx, `
+		UPDATE discovery_suggestions SET status = $4, resolved_at = $3
+		WHERE id = $1 AND tenant_id = $2 AND status = $5
+	`, id, tenantID, now, string(domain.SuggestionStatusDismissed), string(domain.SuggestionStatusPending))
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("suggestion %s not found or already resolved", id)
+	}
+	return nil
 }
 
 func (r *SuggestionRepo) CountToday(ctx context.Context, tenantID domain.TenantID) (int, error) {

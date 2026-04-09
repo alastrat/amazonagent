@@ -19,10 +19,16 @@ func NewStrategyVersionRepo(pool *pgxpool.Pool) *StrategyVersionRepo {
 }
 
 func (r *StrategyVersionRepo) Create(ctx context.Context, sv *domain.StrategyVersion) error {
-	goalsJSON, _ := json.Marshal(sv.Goals)
-	paramsJSON, _ := json.Marshal(sv.SearchParams)
+	goalsJSON, err := json.Marshal(sv.Goals)
+	if err != nil {
+		return fmt.Errorf("marshal goals: %w", err)
+	}
+	paramsJSON, err := json.Marshal(sv.SearchParams)
+	if err != nil {
+		return fmt.Errorf("marshal search params: %w", err)
+	}
 
-	_, err := r.pool.Exec(ctx, `
+	_, err = r.pool.Exec(ctx, `
 		INSERT INTO strategy_versions (id, tenant_id, version_number, goals, search_params, scoring_config_id,
 			status, parent_version_id, promoted_from_experiment_id, change_reason, created_by, created_at, activated_at, rolled_back_at)
 		VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14)
@@ -48,8 +54,12 @@ func scanVersion(scanner interface{ Scan(...any) error }) (domain.StrategyVersio
 	if err != nil {
 		return sv, err
 	}
-	json.Unmarshal(goalsJSON, &sv.Goals)
-	json.Unmarshal(paramsJSON, &sv.SearchParams)
+	if err := json.Unmarshal(goalsJSON, &sv.Goals); err != nil {
+		return sv, fmt.Errorf("unmarshal goals: %w", err)
+	}
+	if err := json.Unmarshal(paramsJSON, &sv.SearchParams); err != nil {
+		return sv, fmt.Errorf("unmarshal search params: %w", err)
+	}
 	return sv, nil
 }
 
@@ -91,6 +101,9 @@ func (r *StrategyVersionRepo) List(ctx context.Context, tenantID domain.TenantID
 		}
 		versions = append(versions, sv)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return versions, nil
 }
 
@@ -105,19 +118,19 @@ func (r *StrategyVersionRepo) NextVersionNumber(ctx context.Context, tenantID do
 	return maxVersion + 1, nil
 }
 
-func (r *StrategyVersionRepo) SetStatus(ctx context.Context, id domain.StrategyVersionID, status domain.StrategyStatus) error {
+func (r *StrategyVersionRepo) SetStatus(ctx context.Context, tenantID domain.TenantID, id domain.StrategyVersionID, status domain.StrategyStatus) error {
 	now := time.Now()
 	var extra string
 	switch status {
 	case domain.StrategyStatusActive:
-		extra = ", activated_at = $3"
+		extra = ", activated_at = $4"
 	case domain.StrategyStatusRolledBack:
-		extra = ", rolled_back_at = $3"
+		extra = ", rolled_back_at = $4"
 	default:
-		_, err := r.pool.Exec(ctx, `UPDATE strategy_versions SET status = $2 WHERE id = $1`, id, status)
+		_, err := r.pool.Exec(ctx, `UPDATE strategy_versions SET status = $3 WHERE id = $1 AND tenant_id = $2`, id, tenantID, status)
 		return err
 	}
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE strategy_versions SET status = $2%s WHERE id = $1`, extra), id, status, now)
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE strategy_versions SET status = $3%s WHERE id = $1 AND tenant_id = $2`, extra), id, tenantID, status, now)
 	return err
 }
 
@@ -127,5 +140,5 @@ func (r *StrategyVersionRepo) Activate(ctx context.Context, tenantID domain.Tena
 		UPDATE strategy_versions SET status = $2 WHERE tenant_id = $1 AND status = $3
 	`, tenantID, string(domain.StrategyStatusArchived), string(domain.StrategyStatusActive))
 	// Activate new
-	return r.SetStatus(ctx, id, domain.StrategyStatusActive)
+	return r.SetStatus(ctx, tenantID, id, domain.StrategyStatusActive)
 }

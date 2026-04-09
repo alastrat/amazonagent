@@ -37,7 +37,11 @@ func (s *CreditService) GetBalance(ctx context.Context, tenantID domain.TenantID
 		if err := s.accounts.ResetMonthly(ctx, tenantID); err != nil {
 			slog.Warn("credits: failed to reset monthly", "tenant_id", tenantID, "error", err)
 		}
-		account, _ = s.accounts.Get(ctx, tenantID)
+		refreshed, err := s.accounts.Get(ctx, tenantID)
+		if err != nil {
+			return account, nil // return pre-reset data on re-fetch failure
+		}
+		account = refreshed
 	}
 	return account, nil
 }

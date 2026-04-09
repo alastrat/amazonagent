@@ -42,6 +42,9 @@ func (r *CreditAccountRepo) EnsureExists(ctx context.Context, tenantID domain.Te
 }
 
 func (r *CreditAccountRepo) Debit(ctx context.Context, tenantID domain.TenantID, amount int) error {
+	if amount <= 0 {
+		return fmt.Errorf("debit amount must be positive, got %d", amount)
+	}
 	// Atomic: only debit if sufficient credits remain
 	result, err := r.pool.Exec(ctx, `
 		UPDATE credit_accounts SET used_this_month = used_this_month + $2

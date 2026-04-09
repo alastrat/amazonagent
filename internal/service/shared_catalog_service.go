@@ -53,21 +53,20 @@ func (s *SharedCatalogService) EnrichProduct(ctx context.Context, tenantID domai
 		return cached, false, nil // Free — cached and fresh
 	}
 
-	// Need fresh data — check credits
+	// Can't enrich without SP-API — return stale data
+	if s.spapi == nil {
+		return cached, false, nil
+	}
+
+	// Need fresh data — spend credit before calling SP-API
 	if s.credits != nil {
 		if !s.credits.SpendIfAvailable(ctx, tenantID, 1, domain.CreditActionEnrichment, asin) {
-			// No credits — return stale data if available
 			if cached != nil {
 				slog.Info("shared-catalog: returning stale data (no credits)", "asin", asin)
 				return cached, false, nil
 			}
 			return nil, false, nil
 		}
-	}
-
-	// Call SP-API for fresh data
-	if s.spapi == nil {
-		return cached, false, nil
 	}
 
 	details, err := s.spapi.GetProductDetails(ctx, []string{asin}, "US")
@@ -118,6 +117,12 @@ func (s *SharedCatalogService) CheckEligibility(ctx context.Context, tenantID do
 	}
 
 	// Need fresh check — spend credit
+	// Can't check without SP-API
+	if s.spapi == nil {
+		return &domain.TenantEligibility{TenantID: tenantID, ASIN: asin, Eligible: true, CheckedAt: time.Now()}, false, nil
+	}
+
+	// Spend credit before calling SP-API
 	if s.credits != nil {
 		if !s.credits.SpendIfAvailable(ctx, tenantID, 1, domain.CreditActionEligibilityCheck, asin) {
 			if cached != nil {
@@ -125,11 +130,6 @@ func (s *SharedCatalogService) CheckEligibility(ctx context.Context, tenantID do
 			}
 			return nil, false, nil
 		}
-	}
-
-	// Call SP-API
-	if s.spapi == nil {
-		return &domain.TenantEligibility{TenantID: tenantID, ASIN: asin, Eligible: true, CheckedAt: time.Now()}, false, nil
 	}
 
 	restrictions, err := s.spapi.CheckListingEligibility(ctx, []string{asin}, "US")

@@ -100,7 +100,7 @@ func (s *StrategyService) RollbackToVersion(ctx context.Context, tenantID domain
 	// Mark current active as rolled back
 	current, err := s.versions.GetActive(ctx, tenantID)
 	if err == nil && current != nil {
-		s.versions.SetStatus(ctx, current.ID, domain.StrategyStatusRolledBack)
+		s.versions.SetStatus(ctx, tenantID, current.ID, domain.StrategyStatusRolledBack)
 	}
 
 	// Create new version with target's params

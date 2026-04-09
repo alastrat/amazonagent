@@ -62,6 +62,9 @@ func (r *BrandCatalogRepo) ListByCategory(ctx context.Context, category string) 
 		}
 		brands = append(brands, b)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return brands, nil
 }
 

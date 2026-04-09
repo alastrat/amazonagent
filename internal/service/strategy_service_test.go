@@ -104,7 +104,7 @@ func (r *strategyVersionRepo) NextVersionNumber(_ context.Context, tenantID doma
 	return max + 1, nil
 }
 
-func (r *strategyVersionRepo) SetStatus(_ context.Context, id domain.StrategyVersionID, status domain.StrategyStatus) error {
+func (r *strategyVersionRepo) SetStatus(_ context.Context, _ domain.TenantID, id domain.StrategyVersionID, status domain.StrategyStatus) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.setStatusErr != nil {
