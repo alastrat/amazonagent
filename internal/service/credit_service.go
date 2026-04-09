@@ -52,17 +52,10 @@ func (s *CreditService) HasCredits(ctx context.Context, tenantID domain.TenantID
 }
 
 // Spend deducts credits and records a transaction. Returns error if insufficient.
+// The atomic Debit SQL enforces the balance check, so no pre-check is needed.
 func (s *CreditService) Spend(ctx context.Context, tenantID domain.TenantID, amount int, action domain.CreditAction, reference string) error {
-	has, err := s.HasCredits(ctx, tenantID, amount)
-	if err != nil {
-		return err
-	}
-	if !has {
-		return fmt.Errorf("insufficient credits: need %d, have less", amount)
-	}
-
 	if err := s.accounts.Debit(ctx, tenantID, amount); err != nil {
-		return err
+		return fmt.Errorf("insufficient credits or debit failed: %w", err)
 	}
 
 	tx := &domain.CreditTransaction{

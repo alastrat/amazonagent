@@ -1,5 +1,19 @@
 package domain
 
+// EstimatedWholesaleRatio is the default wholesale-to-retail cost ratio used
+// when actual cost data is unavailable (e.g., pre-price-list margin estimates).
+const EstimatedWholesaleRatio = 0.4
+
+// EstimateMarginPct returns an estimated net margin percentage for a given
+// Amazon price, using the default wholesale ratio and standard-size FBA fees.
+func EstimateMarginPct(amazonPrice float64) float64 {
+	if amazonPrice <= 0 {
+		return 0
+	}
+	calc := CalculateFBAFees(amazonPrice, amazonPrice*EstimatedWholesaleRatio, 1.0, false)
+	return calc.NetMarginPct
+}
+
 type FBAFeeCalculation struct {
 	ReferralFeePct float64 `json:"referral_fee_pct"`
 	ReferralFee    float64 `json:"referral_fee"`

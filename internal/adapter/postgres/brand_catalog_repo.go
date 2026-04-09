@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
@@ -32,7 +31,7 @@ func (r *BrandCatalogRepo) Upsert(ctx context.Context, b *domain.SharedBrand) er
 }
 
 func (r *BrandCatalogRepo) GetByName(ctx context.Context, name string) (*domain.SharedBrand, error) {
-	normalized := strings.ToLower(strings.TrimSpace(name))
+	normalized := domain.NormalizeBrandName(name)
 	var b domain.SharedBrand
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, name, normalized_name, typical_gating, categories, product_count, created_at

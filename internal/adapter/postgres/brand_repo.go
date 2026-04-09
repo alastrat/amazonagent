@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,7 +19,7 @@ func NewBrandRepo(pool *pgxpool.Pool) *BrandRepo {
 
 // GetOrCreateBrand finds a brand by normalized name or creates it.
 func (r *BrandRepo) GetOrCreateBrand(ctx context.Context, brandName string) (*domain.Brand, error) {
-	normalized := strings.ToLower(strings.TrimSpace(brandName))
+	normalized := domain.NormalizeBrandName(brandName)
 	if normalized == "" {
 		return nil, fmt.Errorf("empty brand name")
 	}

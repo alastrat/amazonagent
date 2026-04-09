@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
@@ -95,11 +94,8 @@ func (s *SharedCatalogService) EnrichProduct(ctx context.Context, tenantID domai
 		CreatedAt:      now,
 	}
 
-	// Calculate estimated margin (40% wholesale estimate)
-	if d.AmazonPrice > 0 {
-		fbaCalc := domain.CalculateFBAFees(d.AmazonPrice, d.AmazonPrice*0.4, 1.0, false)
-		product.EstimatedMargin = fbaCalc.NetMarginPct
-	}
+	// Calculate estimated margin using default wholesale ratio
+	product.EstimatedMargin = domain.EstimateMarginPct(d.AmazonPrice)
 
 	s.catalog.UpsertProduct(ctx, product)
 	s.catalog.IncrementEnrichment(ctx, asin)
@@ -161,7 +157,7 @@ func (s *SharedCatalogService) CheckEligibility(ctx context.Context, tenantID do
 	// Update brand gating info in shared catalog
 	product, _ := s.catalog.GetByASIN(ctx, asin)
 	if product != nil && product.Brand != "" && !eligible {
-		s.brands.UpdateGating(ctx, strings.ToLower(strings.TrimSpace(product.Brand)), "brand_gated")
+		s.brands.UpdateGating(ctx, domain.NormalizeBrandName(product.Brand), "brand_gated")
 	}
 
 	return result, true, nil
@@ -172,6 +168,8 @@ func (s *SharedCatalogService) CheckEligibility(ctx context.Context, tenantID do
 func (s *SharedCatalogService) RecordFromScan(ctx context.Context, products []port.ProductSearchResult) error {
 	now := time.Now()
 	shared := make([]domain.SharedProduct, 0, len(products))
+	// Collect unique brands to upsert once per brand instead of per product.
+	uniqueBrands := make(map[string]string) // normalized -> category (last seen)
 	for _, p := range products {
 		if p.ASIN == "" {
 			continue
@@ -186,18 +184,23 @@ func (s *SharedCatalogService) RecordFromScan(ctx context.Context, products []po
 			BuyBoxPrice: p.AmazonPrice,
 			CreatedAt:   now,
 		}
-		if p.AmazonPrice > 0 {
-			fbaCalc := domain.CalculateFBAFees(p.AmazonPrice, p.AmazonPrice*0.4, 1.0, false)
-			sp.EstimatedMargin = fbaCalc.NetMarginPct
-		}
+		sp.EstimatedMargin = domain.EstimateMarginPct(p.AmazonPrice)
 		if p.AmazonPrice > 0 || p.BSRRank > 0 {
 			sp.LastEnrichedAt = &now
 		}
 		shared = append(shared, sp)
 
 		if p.Brand != "" {
-			s.upsertBrand(ctx, p.Brand, p.Category)
+			normalized := domain.NormalizeBrandName(p.Brand)
+			if _, seen := uniqueBrands[normalized]; !seen {
+				uniqueBrands[normalized] = p.Category
+			}
 		}
+	}
+
+	// Upsert each brand once.
+	for normalized, category := range uniqueBrands {
+		s.upsertBrand(ctx, normalized, category)
 	}
 
 	if len(shared) > 0 {
@@ -219,8 +222,13 @@ func (s *SharedCatalogService) GetTenantEligibility(ctx context.Context, tenantI
 	return s.eligibility.GetByASINs(ctx, tenantID, asins)
 }
 
+// RecordEligibility persists a tenant eligibility result in the shared catalog.
+func (s *SharedCatalogService) RecordEligibility(ctx context.Context, te *domain.TenantEligibility) error {
+	return s.eligibility.Set(ctx, te)
+}
+
 func (s *SharedCatalogService) upsertBrand(ctx context.Context, brandName, category string) {
-	normalized := strings.ToLower(strings.TrimSpace(brandName))
+	normalized := domain.NormalizeBrandName(brandName)
 	if normalized == "" {
 		return
 	}

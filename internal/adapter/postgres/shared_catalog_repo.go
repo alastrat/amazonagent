@@ -47,15 +47,33 @@ func (r *SharedCatalogRepo) UpsertProductBatch(ctx context.Context, products []d
 	return nil
 }
 
-func (r *SharedCatalogRepo) GetByASIN(ctx context.Context, asin string) (*domain.SharedProduct, error) {
+// productColumns is the shared SELECT column list for SharedProduct queries.
+const productColumns = `asin, title, brand, category, COALESCE(bsr_rank, 0), COALESCE(seller_count, 0),
+	COALESCE(buy_box_price, 0), COALESCE(estimated_margin_pct, 0), COALESCE(image_url, ''),
+	last_enriched_at, enrichment_count, created_at`
+
+func scanProduct(scanner interface{ Scan(...any) error }) (domain.SharedProduct, error) {
 	var p domain.SharedProduct
-	err := r.pool.QueryRow(ctx, `
-		SELECT asin, title, brand, category, COALESCE(bsr_rank, 0), COALESCE(seller_count, 0),
-			COALESCE(buy_box_price, 0), COALESCE(estimated_margin_pct, 0), COALESCE(image_url, ''),
-			last_enriched_at, enrichment_count, created_at
-		FROM product_catalog WHERE asin = $1
-	`, asin).Scan(&p.ASIN, &p.Title, &p.Brand, &p.Category, &p.BSRRank, &p.SellerCount,
+	err := scanner.Scan(&p.ASIN, &p.Title, &p.Brand, &p.Category, &p.BSRRank, &p.SellerCount,
 		&p.BuyBoxPrice, &p.EstimatedMargin, &p.ImageURL, &p.LastEnrichedAt, &p.EnrichmentCount, &p.CreatedAt)
+	return p, err
+}
+
+func scanProductRows(rows interface{ Next() bool; Scan(...any) error }) ([]domain.SharedProduct, error) {
+	var products []domain.SharedProduct
+	for rows.Next() {
+		p, err := scanProduct(rows)
+		if err != nil {
+			return nil, err
+		}
+		products = append(products, p)
+	}
+	return products, nil
+}
+
+func (r *SharedCatalogRepo) GetByASIN(ctx context.Context, asin string) (*domain.SharedProduct, error) {
+	row := r.pool.QueryRow(ctx, `SELECT `+productColumns+` FROM product_catalog WHERE asin = $1`, asin)
+	p, err := scanProduct(row)
 	if err != nil {
 		return nil, err
 	}
@@ -72,78 +90,34 @@ func (r *SharedCatalogRepo) GetByASINs(ctx context.Context, asins []string) ([]d
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
 		args[i] = asin
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT asin, title, brand, category, COALESCE(bsr_rank, 0), COALESCE(seller_count, 0),
-			COALESCE(buy_box_price, 0), COALESCE(estimated_margin_pct, 0), COALESCE(image_url, ''),
-			last_enriched_at, enrichment_count, created_at
-		FROM product_catalog WHERE asin IN (%s)
-	`, strings.Join(placeholders, ",")), args...)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT `+productColumns+` FROM product_catalog WHERE asin IN (%s)`,
+		strings.Join(placeholders, ",")), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var products []domain.SharedProduct
-	for rows.Next() {
-		var p domain.SharedProduct
-		if err := rows.Scan(&p.ASIN, &p.Title, &p.Brand, &p.Category, &p.BSRRank, &p.SellerCount,
-			&p.BuyBoxPrice, &p.EstimatedMargin, &p.ImageURL, &p.LastEnrichedAt, &p.EnrichmentCount, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-		products = append(products, p)
-	}
-	return products, nil
+	return scanProductRows(rows)
 }
 
 func (r *SharedCatalogRepo) GetStale(ctx context.Context, olderThan time.Time, limit int) ([]domain.SharedProduct, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT asin, title, brand, category, COALESCE(bsr_rank, 0), COALESCE(seller_count, 0),
-			COALESCE(buy_box_price, 0), COALESCE(estimated_margin_pct, 0), COALESCE(image_url, ''),
-			last_enriched_at, enrichment_count, created_at
-		FROM product_catalog
+	rows, err := r.pool.Query(ctx, `SELECT `+productColumns+` FROM product_catalog
 		WHERE last_enriched_at IS NULL OR last_enriched_at < $1
-		ORDER BY last_enriched_at NULLS FIRST LIMIT $2
-	`, olderThan, limit)
+		ORDER BY last_enriched_at NULLS FIRST LIMIT $2`, olderThan, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var products []domain.SharedProduct
-	for rows.Next() {
-		var p domain.SharedProduct
-		if err := rows.Scan(&p.ASIN, &p.Title, &p.Brand, &p.Category, &p.BSRRank, &p.SellerCount,
-			&p.BuyBoxPrice, &p.EstimatedMargin, &p.ImageURL, &p.LastEnrichedAt, &p.EnrichmentCount, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-		products = append(products, p)
-	}
-	return products, nil
+	return scanProductRows(rows)
 }
 
 func (r *SharedCatalogRepo) SearchByCategory(ctx context.Context, category string, limit int) ([]domain.SharedProduct, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT asin, title, brand, category, COALESCE(bsr_rank, 0), COALESCE(seller_count, 0),
-			COALESCE(buy_box_price, 0), COALESCE(estimated_margin_pct, 0), COALESCE(image_url, ''),
-			last_enriched_at, enrichment_count, created_at
-		FROM product_catalog WHERE category ILIKE $1
-		ORDER BY enrichment_count DESC LIMIT $2
-	`, "%"+category+"%", limit)
+	rows, err := r.pool.Query(ctx, `SELECT `+productColumns+` FROM product_catalog WHERE category ILIKE $1
+		ORDER BY enrichment_count DESC LIMIT $2`, "%"+category+"%", limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var products []domain.SharedProduct
-	for rows.Next() {
-		var p domain.SharedProduct
-		if err := rows.Scan(&p.ASIN, &p.Title, &p.Brand, &p.Category, &p.BSRRank, &p.SellerCount,
-			&p.BuyBoxPrice, &p.EstimatedMargin, &p.ImageURL, &p.LastEnrichedAt, &p.EnrichmentCount, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-		products = append(products, p)
-	}
-	return products, nil
+	return scanProductRows(rows)
 }
 
 func (r *SharedCatalogRepo) IncrementEnrichment(ctx context.Context, asin string) error {

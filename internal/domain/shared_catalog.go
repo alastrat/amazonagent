@@ -1,6 +1,14 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// NormalizeBrandName lowercases and trims a brand name for consistent lookups.
+func NormalizeBrandName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
 
 // SharedProduct is a platform-wide product entry enriched by all tenants' scans.
 // Product data (ASIN, title, BSR, price) is shared. Tenant-specific data (eligibility,

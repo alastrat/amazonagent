@@ -53,7 +53,9 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 		defer catRows.Close()
 		for catRows.Next() {
 			var ce domain.CategoryEligibility
-			catRows.Scan(&ce.Category, &ce.ProbeCount, &ce.OpenCount, &ce.GatedCount, &ce.OpenRate)
+			if err := catRows.Scan(&ce.Category, &ce.ProbeCount, &ce.OpenCount, &ce.GatedCount, &ce.OpenRate); err != nil {
+				return nil, fmt.Errorf("scan category eligibility: %w", err)
+			}
 			fp.Categories = append(fp.Categories, ce)
 		}
 	}
@@ -67,7 +69,9 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 		defer brandRows.Close()
 		for brandRows.Next() {
 			var br domain.BrandProbeResult
-			brandRows.Scan(&br.ASIN, &br.Brand, &br.Category, &br.Tier, &br.Eligible, &br.Reason)
+			if err := brandRows.Scan(&br.ASIN, &br.Brand, &br.Category, &br.Tier, &br.Eligible, &br.Reason); err != nil {
+				return nil, fmt.Errorf("scan brand probe result: %w", err)
+			}
 			fp.BrandResults = append(fp.BrandResults, br)
 		}
 	}

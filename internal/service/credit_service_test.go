@@ -73,6 +73,9 @@ func (m *creditAcctRepo) Debit(_ context.Context, tenantID domain.TenantID, amou
 	if !ok {
 		return fmt.Errorf("account not found for tenant %s", tenantID)
 	}
+	if (acc.MonthlyLimit - acc.UsedThisMonth) < amount {
+		return fmt.Errorf("insufficient credits: need %d, have %d", amount, acc.MonthlyLimit-acc.UsedThisMonth)
+	}
 	acc.UsedThisMonth += amount
 	return nil
 }

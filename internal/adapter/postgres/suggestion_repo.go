@@ -56,7 +56,7 @@ func (r *SuggestionRepo) GetByID(ctx context.Context, tenantID domain.TenantID, 
 }
 
 func (r *SuggestionRepo) ListPending(ctx context.Context, tenantID domain.TenantID, limit int) ([]domain.DiscoverySuggestion, error) {
-	return r.listByStatus(ctx, tenantID, "pending", limit)
+	return r.listByStatus(ctx, tenantID, string(domain.SuggestionStatusPending), limit)
 }
 
 func (r *SuggestionRepo) ListAll(ctx context.Context, tenantID domain.TenantID, limit int) ([]domain.DiscoverySuggestion, error) {

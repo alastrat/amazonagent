@@ -131,7 +131,7 @@ func (s *AssessmentService) RunEligibilityScan(ctx context.Context, tenantID dom
 				Reason:    reason,
 				CheckedAt: time.Now(),
 			}
-			s.sharedCatalog.eligibility.Set(ctx, te)
+			s.sharedCatalog.RecordEligibility(ctx, te)
 		}
 	}
 
