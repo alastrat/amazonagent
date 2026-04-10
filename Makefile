@@ -54,3 +54,37 @@ web-install:
 
 web-build:
 	cd apps/web && npm run build
+
+# Playwright E2E tests (auto-starts Next.js dev server)
+test-playwright:
+	cd apps/web && npx playwright test --reporter=list
+
+# Playwright E2E — onboarding only
+test-playwright-onboarding:
+	cd apps/web && npx playwright test tests/e2e/onboarding.spec.ts --reporter=list
+
+# Playwright E2E — with browser UI (interactive)
+test-playwright-ui:
+	cd apps/web && npx playwright test --ui
+
+# Install Playwright browsers (run once)
+playwright-install:
+	cd apps/web && npx playwright install chromium
+
+# Deploy frontend to Cloudflare
+web-deploy:
+	cd apps/web && NEXT_PUBLIC_API_URL=https://amazonagent-production.up.railway.app npm run deploy
+
+# Start everything locally for manual testing
+local:
+	@echo "Starting local dev environment..."
+	@echo "1. Starting Docker (postgres + inngest)..."
+	docker compose up -d postgres inngest
+	@echo "2. Waiting for postgres to be healthy..."
+	@sleep 5
+	@echo "3. Start the API in another terminal: PORT=8081 make dev"
+	@echo "4. Start the frontend in another terminal: make web-dev"
+	@echo ""
+	@echo "Frontend: http://localhost:3000"
+	@echo "API:      http://localhost:8081"
+	@echo "Inngest:  http://localhost:8290"
