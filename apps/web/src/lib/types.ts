@@ -293,6 +293,122 @@ export interface CreditTransaction {
   created_at: string;
 }
 
+// --- Amazon Seller Account ---
+
+export type SellerAccountStatus = "pending" | "valid" | "invalid" | "expired";
+
+export interface AmazonSellerAccount {
+  id: string;
+  tenant_id: string;
+  sp_api_client_id: string;
+  seller_id: string;
+  marketplace_id: string;
+  status: SellerAccountStatus;
+  error_message?: string;
+  connected_at?: string;
+  last_verified?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConnectSellerAccountRequest {
+  sp_api_client_id: string;
+  sp_api_client_secret: string;
+  sp_api_refresh_token: string;
+  seller_id: string;
+  marketplace_id?: string;
+}
+
+// --- Assessment Graph ---
+
+export type AssessmentGraphNodeType = "root" | "category" | "brand" | "product";
+export type AssessmentGraphNodeStatus = "not_scanned" | "scanning" | "scanned" | "skipped";
+
+export interface AssessmentGraphNode {
+  id: string;
+  type: AssessmentGraphNodeType;
+  label: string;
+  status: AssessmentGraphNodeStatus;
+  eligible?: boolean;
+  open_rate?: number;
+  price?: number;
+  margin?: number;
+  category?: string;
+  brand?: string;
+}
+
+export interface AssessmentGraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface AssessmentGraphStats {
+  categories_scanned: number;
+  categories_total: number;
+  eligible_products: number;
+  restricted_products: number;
+  open_brands: number;
+  restricted_brands: number;
+  qualified_products?: number;
+}
+
+export interface AssessmentGraph {
+  nodes: AssessmentGraphNode[];
+  edges: AssessmentGraphEdge[];
+  stats: AssessmentGraphStats;
+}
+
+// --- Assessment Outcome ---
+
+export interface CategorySummary {
+  category: string;
+  eligible_count: number;
+  qualified_count: number;
+  avg_margin_pct: number;
+  open_rate: number;
+}
+
+export interface ProductRecommendation {
+  asin: string;
+  title: string;
+  brand: string;
+  category: string;
+  buy_box_price: number;
+  est_margin_pct: number;
+  seller_count: number;
+  bsr_rank: number;
+}
+
+export interface UngatingStep {
+  order: number;
+  category: string;
+  action: string;
+  difficulty: string;
+  est_days: number;
+  impact: string;
+}
+
+export interface UngatingRoadmap {
+  restricted_categories: { category: string; open_rate: number; difficulty: string }[];
+  recommended_path: UngatingStep[];
+  estimated_timeline: string;
+}
+
+export interface OpportunityResult {
+  categories: CategorySummary[];
+  products: ProductRecommendation[];
+  strategy: StrategyGoal[];
+}
+
+export interface AssessmentOutcome {
+  has_opportunities: boolean;
+  qualified_count: number;
+  eligible_categories: number;
+  open_brands: number;
+  opportunity?: OpportunityResult;
+  ungating?: UngatingRoadmap;
+}
+
 // --- End concierge types ---
 
 export type DiscoveryCadence = "nightly" | "twice_daily" | "weekly";

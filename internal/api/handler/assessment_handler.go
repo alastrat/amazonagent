@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -23,26 +22,23 @@ func NewAssessmentHandler(assessment *service.AssessmentService, durableRuntime 
 func (h *AssessmentHandler) Start(w http.ResponseWriter, r *http.Request) {
 	ac := middleware.GetAuthContext(r.Context())
 
-	var req struct {
-		AccountAgeDays int     `json:"account_age_days"`
-		ActiveListings int     `json:"active_listings"`
-		StatedCapital  float64 `json:"stated_capital"`
-	}
+	// No longer collecting account age / listings / capital — inferred post-assessment
 	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&req)
+		// Drain body for compatibility with old clients sending JSON
+		r.Body.Close()
 	}
 
 	// Create profile synchronously
-	profile, err := h.assessment.StartAssessment(r.Context(), ac.TenantID, req.AccountAgeDays, req.ActiveListings, req.StatedCapital)
+	profile, err := h.assessment.StartAssessment(r.Context(), ac.TenantID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to start assessment: "+err.Error())
 		return
 	}
 
-	// Trigger Inngest workflow for the async scan + strategy generation
+	// Trigger Inngest workflow for the async discovery assessment
 	if h.durableRuntime != nil {
 		slog.Info("assessment: triggering inngest workflow", "tenant_id", ac.TenantID)
-		if err := h.durableRuntime.TriggerAssessment(r.Context(), ac.TenantID, req.AccountAgeDays, req.ActiveListings, req.StatedCapital); err != nil {
+		if err := h.durableRuntime.TriggerAssessment(r.Context(), ac.TenantID); err != nil {
 			slog.Error("assessment: failed to trigger inngest", "tenant_id", ac.TenantID, "error", err)
 			response.Error(w, http.StatusInternalServerError, "failed to trigger assessment workflow: "+err.Error())
 			return

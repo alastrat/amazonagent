@@ -19,6 +19,10 @@ import type {
   DiscoverySuggestion,
   CreditAccount,
   CreditTransaction,
+  AmazonSellerAccount,
+  ConnectSellerAccountRequest,
+  AssessmentGraph,
+  AssessmentOutcome,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -178,12 +182,31 @@ class ApiClient {
     return this.fetch<ScanJob>(`/scans/${id}`);
   }
 
+  // --- Seller Account ---
+
+  connectSellerAccount(credentials: ConnectSellerAccountRequest) {
+    return this.fetch<AmazonSellerAccount>("/seller-account/connect", {
+      method: "POST",
+      body: JSON.stringify(credentials),
+    });
+  }
+
+  getSellerAccount() {
+    return this.fetch<AmazonSellerAccount>("/seller-account");
+  }
+
+  disconnectSellerAccount() {
+    return this.fetch<{ status: string }>("/seller-account/disconnect", {
+      method: "DELETE",
+    });
+  }
+
   // --- Assessment ---
 
-  startAssessment(data: { account_age_days: number; active_listings: number; stated_capital: number }) {
+  startAssessment(data?: { account_age_days?: number; active_listings?: number; stated_capital?: number }) {
     return this.fetch<SellerProfile>("/assessment/start", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(data ?? {}),
     });
   }
 
@@ -193,6 +216,10 @@ class ApiClient {
 
   getAssessmentProfile() {
     return this.fetch<{ profile: SellerProfile; fingerprint: EligibilityFingerprint }>("/assessment/profile");
+  }
+
+  getAssessmentGraph() {
+    return this.fetch<{ graph: AssessmentGraph; status: string; outcome?: AssessmentOutcome }>("/assessment/graph");
   }
 
   // --- Strategy ---

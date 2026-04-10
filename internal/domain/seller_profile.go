@@ -100,3 +100,91 @@ type AssessmentProbe struct {
 	Tier           string `json:"tier"` // top, mid, generic, calibration
 	ExpectedGating string `json:"expected_gating"` // open, brand_gated, category_gated
 }
+
+// ---------------------------------------------------------------------------
+// Discovery Assessment types (Phase B — broad category search)
+// ---------------------------------------------------------------------------
+
+// AssessmentSearchResult records a per-ASIN result during the discovery assessment.
+type AssessmentSearchResult struct {
+	ASIN              string  `json:"asin"`
+	Title             string  `json:"title"`
+	Brand             string  `json:"brand"`
+	Category          string  `json:"category"`
+	AmazonPrice       float64 `json:"amazon_price"`
+	BSRRank           int     `json:"bsr_rank"`
+	SellerCount       int     `json:"seller_count"`
+	Eligible          bool    `json:"eligible"`
+	RestrictionReason string  `json:"restriction_reason,omitempty"`
+}
+
+// AssessmentOutcome wraps either an OpportunityResult (products found) or
+// an UngatingResult (nothing found, seller needs ungating).
+type AssessmentOutcome struct {
+	HasOpportunities bool               `json:"has_opportunities"`
+	Opportunity      *OpportunityResult `json:"opportunity,omitempty"`
+	Ungating         *UngatingResult    `json:"ungating,omitempty"`
+
+	// Metadata about the assessment run
+	TotalSearched     int     `json:"total_searched"`
+	TotalEligible     int     `json:"total_eligible"`
+	TotalQualified    int     `json:"total_qualified"`
+	APICallsUsed      int     `json:"api_calls_used"`
+	DurationSeconds   float64 `json:"duration_seconds"`
+	CircuitBreakers   []string `json:"circuit_breakers,omitempty"` // which breakers fired
+}
+
+// OpportunityResult is returned when the assessment finds sellable products.
+type OpportunityResult struct {
+	QualifiedProducts  []ProductRecommendation `json:"qualified_products"`
+	EligibleCategories []CategorySummary       `json:"eligible_categories"`
+	OpenBrands         []string                `json:"open_brands"`
+	TopRecommendations []ProductRecommendation `json:"top_recommendations"` // top 10 by margin
+	EstimatedMonthlyRev float64               `json:"estimated_monthly_rev"`
+}
+
+// UngatingResult is returned when the assessment finds no sellable products.
+type UngatingResult struct {
+	RestrictedCategories []RestrictedCategory `json:"restricted_categories"`
+	RecommendedPath      []UngatingStep       `json:"recommended_path"`
+	EstimatedTimeline    string               `json:"estimated_timeline"`
+}
+
+// CategorySummary summarises assessment results for one category.
+type CategorySummary struct {
+	Category       string  `json:"category"`
+	BrowseNodeID   string  `json:"browse_node_id"`
+	EligibleCount  int     `json:"eligible_count"`
+	QualifiedCount int     `json:"qualified_count"`
+	AvgMarginPct   float64 `json:"avg_margin_pct"`
+	OpenRate       float64 `json:"open_rate"`
+}
+
+// ProductRecommendation is a single product recommendation from the assessment.
+type ProductRecommendation struct {
+	ASIN         string  `json:"asin"`
+	Title        string  `json:"title"`
+	Brand        string  `json:"brand"`
+	Category     string  `json:"category"`
+	BuyBoxPrice  float64 `json:"buy_box_price"`
+	EstMarginPct float64 `json:"est_margin_pct"`
+	SellerCount  int     `json:"seller_count"`
+	BSRRank      int     `json:"bsr_rank"`
+}
+
+// RestrictedCategory records gating info for the ungating roadmap.
+type RestrictedCategory struct {
+	Category   string  `json:"category"`
+	OpenRate   float64 `json:"open_rate"`
+	Difficulty string  `json:"difficulty"` // easy | medium | hard
+}
+
+// UngatingStep is one step in the ungating roadmap.
+type UngatingStep struct {
+	Order      int    `json:"order"`
+	Category   string `json:"category"`
+	Action     string `json:"action"`
+	Difficulty string `json:"difficulty"`
+	EstDays    int    `json:"est_days"`
+	Impact     string `json:"impact"`
+}

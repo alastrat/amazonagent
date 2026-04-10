@@ -43,6 +43,13 @@ func NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID strin
 	}
 }
 
+// NewClientFromCredentials constructs a per-tenant SP-API client from explicit credentials.
+// This is the same as NewClient but named to clarify it takes stored (decrypted) credentials
+// rather than config/env vars.
+func NewClientFromCredentials(clientID, clientSecret, refreshToken, marketplace, sellerID string) *Client {
+	return NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID)
+}
+
 func (c *Client) IsConfigured() bool {
 	return c.clientID != "" && c.clientSecret != "" && c.refreshToken != ""
 }

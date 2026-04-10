@@ -22,10 +22,11 @@ type Handlers struct {
 	Settings  *handler.SettingsHandler
 	Scan      *handler.ScanHandler
 	Catalog   *handler.CatalogHandler
-	Credit     *handler.CreditHandler
-	Assessment *handler.AssessmentHandler
-	Strategy   *handler.StrategyHandler
-	Suggestion *handler.SuggestionHandler
+	Credit        *handler.CreditHandler
+	Assessment    *handler.AssessmentHandler
+	Strategy      *handler.StrategyHandler
+	Suggestion    *handler.SuggestionHandler
+	SellerAccount *handler.SellerAccountHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -98,6 +99,10 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Get("/suggestions/all", h.Suggestion.ListAll)
 		r.Post("/suggestions/{id}/accept", h.Suggestion.Accept)
 		r.Post("/suggestions/{id}/dismiss", h.Suggestion.Dismiss)
+
+		r.Post("/seller-account/connect", h.SellerAccount.Connect)
+		r.Get("/seller-account", h.SellerAccount.Get)
+		r.Delete("/seller-account/disconnect", h.SellerAccount.Disconnect)
 
 		r.Get("/settings", h.Settings.Get)
 		r.Put("/settings", h.Settings.Update)

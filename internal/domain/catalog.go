@@ -6,9 +6,10 @@ import "time"
 type ScanType string
 
 const (
-	ScanTypePriceList ScanType = "pricelist"
-	ScanTypeCategory  ScanType = "category"
-	ScanTypeKeyword   ScanType = "keyword"
+	ScanTypePriceList   ScanType = "pricelist"
+	ScanTypeCategory    ScanType = "category"
+	ScanTypeKeyword     ScanType = "keyword"
+	ScanTypeAssessment  ScanType = "assessment"
 )
 
 // DataQuality bitmask flags track which data points are populated.

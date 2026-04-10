@@ -27,9 +27,11 @@ export const queryKeys = {
     all: ["scans"] as const,
     detail: (id: string) => ["scans", id] as const,
   },
+  sellerAccount: ["seller-account"] as const,
   assessment: {
     status: ["assessment", "status"] as const,
     profile: ["assessment", "profile"] as const,
+    graph: ["assessment", "graph"] as const,
   },
   strategy: {
     active: ["strategy"] as const,

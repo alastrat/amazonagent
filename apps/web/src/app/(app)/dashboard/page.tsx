@@ -45,9 +45,10 @@ export default function DashboardPage() {
         <Card>
           <CardContent className="flex items-center justify-between py-4">
             <div>
-              <p className="font-medium">Welcome! Complete your onboarding to get started.</p>
+              <p className="font-medium">Welcome! Connect your Amazon account to get started.</p>
               <p className="text-sm text-muted-foreground">
-                We will assess your account and build a custom sourcing strategy.
+                We will analyze your seller account, discover what you can sell, and build a custom
+                sourcing strategy.
               </p>
             </div>
             <Link href="/onboarding">
