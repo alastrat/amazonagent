@@ -97,3 +97,13 @@ func (r *EligibilityFingerprintRepo) SaveCategoryEligibilities(ctx context.Conte
 		[]string{"fingerprint_id", "tenant_id", "category", "probe_count", "open_count", "gated_count", "open_rate"}, rows)
 }
 
+func (r *EligibilityFingerprintRepo) Delete(ctx context.Context, tenantID domain.TenantID) error {
+	r.pool.Exec(ctx, `DELETE FROM assessment_probe_results WHERE tenant_id = $1`, tenantID)
+	r.pool.Exec(ctx, `DELETE FROM category_eligibilities WHERE tenant_id = $1`, tenantID)
+	_, err := r.pool.Exec(ctx, `DELETE FROM eligibility_fingerprints WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		return fmt.Errorf("delete eligibility fingerprint: %w", err)
+	}
+	return nil
+}
+

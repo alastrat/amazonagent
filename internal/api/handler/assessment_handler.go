@@ -86,3 +86,14 @@ func (h *AssessmentHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		"fingerprint": fingerprint,
 	})
 }
+
+func (h *AssessmentHandler) Reset(w http.ResponseWriter, r *http.Request) {
+	ac := middleware.GetAuthContext(r.Context())
+
+	if err := h.assessment.ResetAssessment(r.Context(), ac.TenantID); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to reset assessment: "+err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]string{"status": "reset"})
+}

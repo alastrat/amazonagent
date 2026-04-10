@@ -65,6 +65,13 @@ func (m *memSellerProfileRepo) Update(_ context.Context, profile *domain.SellerP
 	return nil
 }
 
+func (m *memSellerProfileRepo) Delete(_ context.Context, tenantID domain.TenantID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.profiles, tenantID)
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // In-memory mock: EligibilityFingerprintRepo
 // ---------------------------------------------------------------------------
@@ -130,6 +137,13 @@ func (m *memFingerprintRepo) SaveCategoryEligibilities(_ context.Context, finger
 		return m.saveCatErr
 	}
 	m.categories[fingerprintID] = cats
+	return nil
+}
+
+func (m *memFingerprintRepo) Delete(_ context.Context, tenantID domain.TenantID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.fingerprints, tenantID)
 	return nil
 }
 

@@ -234,3 +234,12 @@ func (s *AssessmentService) GetProfile(ctx context.Context, tenantID domain.Tena
 func (s *AssessmentService) GetFingerprint(ctx context.Context, tenantID domain.TenantID) (*domain.EligibilityFingerprint, error) {
 	return s.fingerprints.Get(ctx, tenantID)
 }
+
+// ResetAssessment deletes the seller profile and fingerprint so the assessment can be re-run.
+func (s *AssessmentService) ResetAssessment(ctx context.Context, tenantID domain.TenantID) error {
+	slog.Info("assessment: resetting", "tenant_id", tenantID)
+	if err := s.fingerprints.Delete(ctx, tenantID); err != nil {
+		slog.Warn("assessment: failed to delete fingerprint", "tenant_id", tenantID, "error", err)
+	}
+	return s.profiles.Delete(ctx, tenantID)
+}

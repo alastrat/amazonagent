@@ -60,3 +60,11 @@ func (r *SellerProfileRepo) Update(ctx context.Context, p *domain.SellerProfile)
 	}
 	return nil
 }
+
+func (r *SellerProfileRepo) Delete(ctx context.Context, tenantID domain.TenantID) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM seller_profiles WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		return fmt.Errorf("delete seller profile: %w", err)
+	}
+	return nil
+}
