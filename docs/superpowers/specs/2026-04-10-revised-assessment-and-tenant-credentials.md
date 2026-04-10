@@ -1,4 +1,4 @@
-# Revised Account Assessment & Per-Tenant Credentials — Design Spec
+# Revised Account Assessment & Amazon Seller Account Integration — Design Spec
 
 **Date:** 2026-04-10
 **Status:** Draft — pending review
@@ -50,12 +50,14 @@ Three interlocking changes that fix the onboarding experience end-to-end:
 
 ---
 
-## 3. Part 1 — Per-Tenant SP-API Credentials
+## 3. Part 1 — Amazon Seller Account Connection
 
-### 3.1 New Table: `tenant_credentials`
+### 3.1 New Table: `amazon_seller_accounts`
+
+Each tenant connects one Amazon Seller Account. The table stores the SP-API credentials needed to make API calls on behalf of THAT specific seller.
 
 ```sql
-CREATE TABLE tenant_credentials (
+CREATE TABLE amazon_seller_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
 
@@ -76,14 +78,14 @@ CREATE TABLE tenant_credentials (
 );
 
 -- RLS policy: tenants can only read their own credentials
-ALTER TABLE tenant_credentials ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_credentials_isolation ON tenant_credentials
+ALTER TABLE amazon_seller_accounts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY amazon_seller_accounts_isolation ON amazon_seller_accounts
     USING (tenant_id = current_setting('app.tenant_id')::uuid);
 
 -- Encrypt sensitive columns using Supabase Vault (pgsodium)
 -- Alternatively: app-level encryption via Go's crypto/aes before storage
-COMMENT ON COLUMN tenant_credentials.sp_api_client_secret IS 'Encrypted at rest via app-level AES-256-GCM';
-COMMENT ON COLUMN tenant_credentials.sp_api_refresh_token IS 'Encrypted at rest via app-level AES-256-GCM';
+COMMENT ON COLUMN amazon_seller_accounts.sp_api_client_secret IS 'Encrypted at rest via app-level AES-256-GCM';
+COMMENT ON COLUMN amazon_seller_accounts.sp_api_refresh_token IS 'Encrypted at rest via app-level AES-256-GCM';
 ```
 
 ### 3.2 Encryption Strategy
@@ -104,9 +106,9 @@ Load:  read from DB → base64 decode → AES-256-GCM decrypt(key, nonce) → pl
 ### 3.3 Domain Model
 
 ```go
-// internal/domain/tenant_credentials.go
+// internal/domain/amazon_seller_accounts.go
 
-type TenantCredentials struct {
+type AmazonSellerAccount struct {
     ID               string    `json:"id"`
     TenantID         TenantID  `json:"tenant_id"`
     SPAPIClientID    string    `json:"sp_api_client_id"`
@@ -128,9 +130,9 @@ type TenantCredentials struct {
 // internal/port/credential_repo.go
 
 type TenantCredentialRepo interface {
-    Create(ctx context.Context, creds *domain.TenantCredentials) error
-    Get(ctx context.Context, tenantID domain.TenantID) (*domain.TenantCredentials, error)
-    Update(ctx context.Context, creds *domain.TenantCredentials) error
+    Create(ctx context.Context, creds *domain.AmazonSellerAccount) error
+    Get(ctx context.Context, tenantID domain.TenantID) (*domain.AmazonSellerAccount, error)
+    Update(ctx context.Context, creds *domain.AmazonSellerAccount) error
     Delete(ctx context.Context, tenantID domain.TenantID) error
     UpdateStatus(ctx context.Context, tenantID domain.TenantID, status string, errMsg string) error
 }
@@ -138,7 +140,7 @@ type TenantCredentialRepo interface {
 
 ### 3.5 Per-Tenant SP-API Client Construction
 
-The current `spapi.NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID)` constructor already accepts credentials as parameters — it does not read env vars internally. The change is in the *call site*: instead of passing env vars, we load credentials from `tenant_credentials` and construct a client per tenant.
+The current `spapi.NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID)` constructor already accepts credentials as parameters — it does not read env vars internally. The change is in the *call site*: instead of passing env vars, we load credentials from `amazon_seller_accounts` and construct a client per tenant.
 
 ```go
 // internal/service/credential_service.go
@@ -175,9 +177,9 @@ func (s *CredentialService) GetSPAPIClient(ctx context.Context, tenantID domain.
 A migration seeds the existing env-var credentials as the test tenant's credentials:
 
 ```sql
--- Migration: seed_test_tenant_credentials.sql
+-- Migration: seed_test_amazon_seller_accounts.sql
 -- Only runs if the test tenant exists and has no credentials yet
-INSERT INTO tenant_credentials (tenant_id, sp_api_client_id, sp_api_client_secret, sp_api_refresh_token, seller_id, marketplace_id, status)
+INSERT INTO amazon_seller_accounts (tenant_id, sp_api_client_id, sp_api_client_secret, sp_api_refresh_token, seller_id, marketplace_id, status)
 SELECT
     id,
     current_setting('app.sp_api_client_id', true),
@@ -195,7 +197,7 @@ In practice, this migration will be run manually for the test tenant with the en
 
 ### 3.7 Future: OAuth Flow
 
-When the Amazon app is published and approved, onboarding Step 1 becomes a "Connect with Amazon" button that initiates the OAuth redirect flow. The OAuth callback writes to `tenant_credentials` the same way the manual form does. The rest of the system is unchanged — it reads from `tenant_credentials` regardless of how the credentials got there.
+When the Amazon app is published and approved, onboarding Step 1 becomes a "Connect with Amazon" button that initiates the OAuth redirect flow. The OAuth callback writes to `amazon_seller_accounts` the same way the manual form does. The rest of the system is unchanged — it reads from `amazon_seller_accounts` regardless of how the credentials got there.
 
 This spec does NOT implement OAuth. It prepares the credential storage layer that OAuth will write to later.
 
@@ -292,6 +294,57 @@ After Phase 1 completes, we have:
 - A set of open brands (brands where at least 1 ASIN is eligible)
 - Category-level open rates (what percentage of products in each category are eligible)
 - A set of restriction patterns (which categories/brands are fully gated)
+
+### 4.3.1 Circuit Breakers
+
+The discovery loop MUST have circuit breakers to prevent runaway API consumption and infinite cycling. These are non-negotiable safety mechanisms:
+
+#### Per-Category Circuit Breaker
+```
+For each category:
+  IF first 5 products are ALL restricted → skip remaining 15 in this category
+  Rationale: if 5 random products from catalog search are all gated,
+  the category is likely fully restricted. Don't waste 15 more API calls.
+```
+
+#### Early Success Exit
+```
+IF we've found >= 50 eligible products across all categories → stop searching
+Rationale: 50 eligible products is more than enough to build a strategy.
+No need to scan all 20 categories.
+```
+
+#### Total API Call Budget
+```
+Hard cap: 600 SP-API calls per assessment (search + eligibility combined)
+IF budget exhausted → stop, build strategy from whatever we've found
+Log: "Assessment budget exhausted after X calls, Y eligible products found"
+```
+
+#### Time Budget
+```
+Hard cap: 5 minutes wall-clock time per assessment
+IF exceeded → stop, build strategy from whatever we've found
+Prevents Inngest function timeout and user waiting indefinitely
+```
+
+#### Repeated Failure Detection
+```
+IF 3 consecutive categories yield 0 eligible products → switch strategy:
+  Skip remaining mid/low open-rate categories
+  Jump to highest expected open-rate categories not yet scanned
+Prevents wasting budget on a heavily restricted account
+```
+
+#### Zero Results Safety
+```
+IF zero eligible products found after all categories scanned:
+  Do NOT loop again with different parameters
+  Instead → immediately go to "ungating roadmap" outcome
+  Log: "Assessment complete: 0 eligible products, account needs ungating"
+```
+
+All circuit breaker activations are logged and recorded in the assessment metadata so the platform can learn which accounts tend to be restricted and adjust scanning strategy over time.
 
 ### 4.4 Phase 2 — Evaluate Eligible Products
 
@@ -589,7 +642,7 @@ Account age, listings, and capital are no longer collected as a form. The assess
 
 On submit:
 
-1. Encrypt secrets and store in `tenant_credentials`
+1. Encrypt secrets and store in `amazon_seller_accounts`
 2. Call SP-API token endpoint to validate credentials
 3. If valid: set status = "valid", proceed to Step 2
 4. If invalid: show error, let user re-enter
@@ -626,6 +679,95 @@ On submit:
 ```
 
 Progress updates arrive via server-sent events or polling the assessment status endpoint. The Inngest workflow emits progress events at each category completion.
+
+### 5.2.1 Discovery Graph Visualization
+
+The assessment is fundamentally a **graph exploration** — traversing Amazon's category → brand → product hierarchy and probing eligibility at each node. The frontend should visualize this as an interactive graph that builds in real-time as the scan progresses.
+
+#### Data Structure (Graph Nodes and Edges)
+
+```
+Graph structure being explored:
+
+  Amazon Marketplace (root)
+    ├── Category: Home & Kitchen
+    │     ├── Brand: Rubbermaid → [eligible]
+    │     │     ├── ASIN: B002YK46UQ → eligible, $24.99, 22% margin
+    │     │     └── ASIN: B00004OCKR → eligible, $12.99, 18% margin
+    │     ├── Brand: KitchenAid → [restricted]
+    │     │     └── ASIN: B0XX... → restricted: "brand approval required"
+    │     └── Brand: OXO → [eligible]
+    │           └── ASIN: B0YY... → eligible, $19.99, 25% margin
+    ├── Category: Office Products
+    │     ├── Brand: 3M → [eligible]
+    │     └── Brand: Post-it → [restricted]
+    ├── Category: Beauty → [fully restricted]
+    │     └── (all products gated)
+    ...
+```
+
+#### Visualization Component: `<DiscoveryGraph />`
+
+A real-time animated graph that renders during the Discover step and persists in the Reveal step.
+
+**Layout:** Force-directed or radial tree layout with three levels:
+- **Level 0 (center):** Marketplace node
+- **Level 1 (ring 1):** Category nodes — color-coded by open rate (green = mostly open, red = mostly restricted, gray = not yet scanned)
+- **Level 2 (ring 2):** Brand nodes — only shown for categories that have been scanned. Green = eligible, Red = restricted
+- **Level 3 (outer):** Product nodes — only shown on hover/click of a brand. Shows ASIN, price, margin
+
+**Real-time animation during Discover step:**
+1. Categories start as gray nodes in a ring around the center
+2. As each category is scanned, it animates: gray → scanning (pulsing blue) → result (green/yellow/red based on open rate)
+3. Brand nodes appear as children of the category being scanned
+4. Eligible brands pulse green briefly, restricted brands appear red
+5. Running counters update: "12 categories scanned, 47 eligible products, 8 open brands"
+
+**Interaction in Reveal step (static, explorable):**
+- Click a category → expands to show brands
+- Click a brand → expands to show products with price/margin
+- Hover any node → tooltip with details
+- Color legend: green = eligible, red = restricted, gray = not scanned, yellow = partially open
+
+**Technical implementation:**
+- Use a lightweight graph library: `react-force-graph-2d` (48KB, canvas-based, handles 500+ nodes) or `d3-force` directly
+- Data fed from the assessment status endpoint which returns the graph structure progressively
+- The `EligibilityFingerprint` type already has `categories[]` and `brand_results[]` — just needs to be structured as nodes/edges for the graph
+
+**API response structure for graph:**
+```json
+{
+  "graph": {
+    "nodes": [
+      {"id": "marketplace", "type": "root", "label": "Amazon US"},
+      {"id": "cat-home", "type": "category", "label": "Home & Kitchen", "open_rate": 75, "status": "scanned"},
+      {"id": "brand-rubbermaid", "type": "brand", "label": "Rubbermaid", "eligible": true, "category": "cat-home"},
+      {"id": "B002YK46UQ", "type": "product", "label": "Storage Container", "eligible": true, "price": 24.99, "margin": 22.1, "brand": "brand-rubbermaid"}
+    ],
+    "edges": [
+      {"source": "marketplace", "target": "cat-home"},
+      {"source": "cat-home", "target": "brand-rubbermaid"},
+      {"source": "brand-rubbermaid", "target": "B002YK46UQ"}
+    ]
+  },
+  "stats": {
+    "categories_scanned": 12,
+    "categories_total": 20,
+    "eligible_products": 47,
+    "restricted_products": 153,
+    "open_brands": 8,
+    "restricted_brands": 34
+  }
+}
+```
+
+**Fallback for simple rendering:**
+If the graph library adds too much bundle size or complexity, a simpler treemap or sunburst chart can represent the same data:
+- Outer ring: categories (area proportional to product count)
+- Inner ring: brands within each category
+- Color: green/red/gray for eligibility
+
+The key principle: **the user should SEE the exploration happening**, understand the shape of their eligibility landscape, and feel confident the system is doing thorough work on their behalf.
 
 ### 5.3 Onboarding Step 3: Reveal
 
@@ -725,7 +867,7 @@ The user approves the strategy (whether sourcing or ungating). On approval:
 
 | Type | File | Purpose |
 |---|---|---|
-| `TenantCredentials` | `internal/domain/tenant_credentials.go` | Encrypted SP-API creds per tenant |
+| `AmazonSellerAccount` | `internal/domain/amazon_seller_accounts.go` | Encrypted SP-API creds per tenant |
 | `AssessmentOutcome` | `internal/domain/assessment_outcome.go` | Result of the discovery assessment |
 | `UngatingRoadmap` | `internal/domain/assessment_outcome.go` | Path for restricted accounts |
 | `ProductRecommendation` | `internal/domain/assessment_outcome.go` | Top product picks from assessment |
@@ -759,7 +901,7 @@ The user approves the strategy (whether sourcing or ungating). On approval:
 
 ### 7.1 New Tables
 
-**`tenant_credentials`** (see Section 3.1 for full schema)
+**`amazon_seller_accounts`** (see Section 3.1 for full schema)
 
 **`assessment_outcomes`** — stores the assessment result:
 
@@ -799,9 +941,9 @@ No existing tables are modified. The existing `eligibility_fingerprints`, `brand
 
 ### 7.3 Migrations
 
-1. `create_tenant_credentials.sql` — new table
+1. `create_amazon_seller_accounts.sql` — new table
 2. `create_assessment_outcomes.sql` — new table
-3. `seed_test_tenant_credentials.go` — Go script to encrypt and insert test credentials
+3. `seed_test_amazon_seller_accounts.go` — Go script to encrypt and insert test credentials
 
 ---
 
@@ -810,8 +952,8 @@ No existing tables are modified. The existing `eligibility_fingerprints`, `brand
 ### Phase A: Per-Tenant Credentials (1-2 days)
 
 **Scope:**
-- `tenant_credentials` table and migration
-- `TenantCredentials` domain type
+- `amazon_seller_accounts` table and migration
+- `AmazonSellerAccount` domain type
 - `TenantCredentialRepo` port and Postgres adapter
 - `CredentialService` with AES-256-GCM encryption
 - `GetSPAPIClient(tenantID)` method
