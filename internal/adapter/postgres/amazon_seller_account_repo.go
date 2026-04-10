@@ -47,7 +47,7 @@ func (r *AmazonSellerAccountRepo) Get(ctx context.Context, tenantID domain.Tenan
 	var encSecret, encToken string
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, tenant_id, sp_api_client_id, sp_api_client_secret, sp_api_refresh_token,
-		       seller_id, marketplace_id, status, last_verified, error_message, created_at, updated_at
+		       seller_id, marketplace_id, status, last_verified, COALESCE(error_message, ''), created_at, updated_at
 		FROM amazon_seller_accounts WHERE tenant_id = $1
 	`, tenantID).Scan(
 		&a.ID, &a.TenantID, &a.SPAPIClientID, &encSecret, &encToken,

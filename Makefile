@@ -1,4 +1,12 @@
-.PHONY: dev test build migrate lint docker-up docker-down up down logs
+.PHONY: dev test build migrate lint docker-up docker-down up down logs start stop
+
+# Start all services (Postgres:5433, Inngest:8290, API:8081, Frontend:3001)
+start:
+	./scripts/start.sh
+
+# Stop all services
+stop:
+	./scripts/stop.sh
 
 # Run everything via Docker (postgres + inngest + api + web)
 up:

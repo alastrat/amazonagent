@@ -83,6 +83,70 @@ func (h *AssessmentHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
+	ac := middleware.GetAuthContext(r.Context())
+
+	profile, _ := h.assessment.GetProfile(r.Context(), ac.TenantID)
+	fingerprint, _ := h.assessment.GetFingerprint(r.Context(), ac.TenantID)
+
+	status := "pending"
+	if profile != nil {
+		status = string(profile.AssessmentStatus)
+	}
+
+	// Build graph nodes from fingerprint
+	nodes := []map[string]any{
+		{"id": "root", "type": "root", "label": "Amazon US", "status": "scanned"},
+	}
+	edges := []map[string]any{}
+
+	if fingerprint != nil {
+		for _, cat := range fingerprint.Categories {
+			catID := "cat-" + cat.Category
+			catStatus := "scanned"
+			if cat.OpenCount > 0 {
+				catStatus = "eligible"
+			} else {
+				catStatus = "restricted"
+			}
+			nodes = append(nodes, map[string]any{
+				"id": catID, "type": "category", "label": cat.Category,
+				"status": catStatus, "open_rate": cat.OpenRate,
+			})
+			edges = append(edges, map[string]any{"source": "root", "target": catID})
+		}
+
+		for _, br := range fingerprint.BrandResults {
+			brandID := "brand-" + br.Brand + "-" + br.ASIN
+			brandStatus := "restricted"
+			if br.Eligible {
+				brandStatus = "eligible"
+			}
+			nodes = append(nodes, map[string]any{
+				"id": brandID, "type": "product", "label": br.ASIN,
+				"status": brandStatus, "eligible": br.Eligible,
+			})
+			catID := "cat-" + br.Category
+			edges = append(edges, map[string]any{"source": catID, "target": brandID})
+		}
+	}
+
+	stats := map[string]any{
+		"categories_scanned": 0, "categories_total": 20,
+		"eligible_products": 0, "restricted_products": 0,
+	}
+	if fingerprint != nil {
+		stats["categories_scanned"] = len(fingerprint.Categories)
+		stats["eligible_products"] = fingerprint.TotalEligible
+		stats["restricted_products"] = fingerprint.TotalRestricted
+	}
+
+	response.JSON(w, http.StatusOK, map[string]any{
+		"status": status,
+		"graph":  map[string]any{"nodes": nodes, "edges": edges, "stats": stats},
+	})
+}
+
 func (h *AssessmentHandler) Reset(w http.ResponseWriter, r *http.Request) {
 	ac := middleware.GetAuthContext(r.Context())
 

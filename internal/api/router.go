@@ -87,6 +87,7 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Post("/assessment/start", h.Assessment.Start)
 		r.Get("/assessment/status", h.Assessment.GetStatus)
 		r.Get("/assessment/profile", h.Assessment.GetProfile)
+		r.Get("/assessment/graph", h.Assessment.GetGraph)
 		r.Delete("/assessment/reset", h.Assessment.Reset)
 
 		r.Get("/strategy", h.Strategy.GetActive)
