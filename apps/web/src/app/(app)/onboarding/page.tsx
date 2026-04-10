@@ -61,12 +61,18 @@ export default function OnboardingPage() {
   const { data: versions } = useStrategyVersions();
   const draftVersion = versions?.find((v: any) => v.status === "draft");
 
-  // If seller account is already connected, skip to discover or later
+  // If seller account is already connected, auto-advance past Step 1
   useEffect(() => {
     if (sellerAccount?.status === "valid" && step === "connect") {
-      // Account already connected; if assessment is done, jump further
       if (assessment?.status === "completed") {
         setStep("reveal");
+      } else if (assessment?.status === "running") {
+        setStep("discover");
+      } else {
+        // Account connected but no assessment — start it automatically
+        startAssessment.mutate(undefined, {
+          onSuccess: () => setStep("discover"),
+        });
       }
     }
   }, [sellerAccount, assessment, step]);
