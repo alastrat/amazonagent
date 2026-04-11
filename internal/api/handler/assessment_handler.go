@@ -120,14 +120,7 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 		return s
 	}
 
-	truncate := func(s string, maxLen int) string {
-		if len(s) <= maxLen {
-			return s
-		}
-		return s[:maxLen-1] + "…"
-	}
-
-	// ── Build tree: Root → Categories → Brands → Products ────────
+	// ── Build tree: Root → Categories → Subcategories → Brands ──
 
 	var categoryChildren []map[string]any
 	var allProducts []map[string]any
@@ -161,39 +154,70 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Group brand results by category → brand, collecting product nodes.
+		// Group brand results by category → subcategory → brand.
 		type brandAgg struct {
-			brand           string
-			eligible        bool
-			productCount    int
-			eligibleCount   int
-			productChildren []map[string]any
+			brand         string
+			eligible      bool
+			productCount  int
+			eligibleCount int
 		}
-		catBrands := make(map[string]map[string]*brandAgg) // catKey -> brandKey -> agg
+		type subcatAgg struct {
+			name          string
+			eligibleCount int
+			totalCount    int
+			brands        map[string]*brandAgg // brandKey -> agg
+		}
+		// catKey -> subcatKey -> subcatAgg
+		catSubcats := make(map[string]map[string]*subcatAgg)
 
 		for _, br := range fingerprint.BrandResults {
 			resolvedCat := resolveCategoryName(br.Category)
 			catKey := strings.ToLower(resolvedCat)
 			brandName := br.Brand
 			if brandName == "" {
-				brandName = "Other"
+				brandName = "Generic"
 			}
 			brandKey := strings.ToLower(brandName)
 
-			if catBrands[catKey] == nil {
-				catBrands[catKey] = make(map[string]*brandAgg)
+			subcatName := br.Subcategory
+			if subcatName == "" {
+				subcatName = resolvedCat // fall back to category name
+			}
+			subcatKey := strings.ToLower(subcatName)
+
+			if catSubcats[catKey] == nil {
+				catSubcats[catKey] = make(map[string]*subcatAgg)
+			}
+			sa, ok := catSubcats[catKey][subcatKey]
+			if !ok {
+				sa = &subcatAgg{
+					name:   subcatName,
+					brands: make(map[string]*brandAgg),
+				}
+				catSubcats[catKey][subcatKey] = sa
+			}
+			sa.totalCount++
+			if br.Eligible {
+				sa.eligibleCount++
 			}
 
-			productNode := map[string]any{
-				"id":             "product-" + br.ASIN,
-				"name":           truncate(br.Title, 40),
-				"type":           "product",
-				"asin":           br.ASIN,
-				"price":          br.Price,
-				"est_margin_pct": br.EstMarginPct,
-				"seller_count":   br.SellerCount,
-				"eligible":       br.Eligible,
-				"value":          1,
+			if existing, ok := sa.brands[brandKey]; ok {
+				existing.productCount++
+				if br.Eligible {
+					existing.eligible = true
+					existing.eligibleCount++
+				}
+			} else {
+				eligCount := 0
+				if br.Eligible {
+					eligCount = 1
+				}
+				sa.brands[brandKey] = &brandAgg{
+					brand:         brandName,
+					eligible:      br.Eligible,
+					productCount:  1,
+					eligibleCount: eligCount,
+				}
 			}
 
 			// Flat products array for click-to-table
@@ -202,58 +226,56 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 				"title":          br.Title,
 				"brand":          brandName,
 				"category":       resolvedCat,
+				"subcategory":    subcatName,
 				"price":          br.Price,
 				"est_margin_pct": br.EstMarginPct,
 				"seller_count":   br.SellerCount,
 				"eligible":       br.Eligible,
 			})
 
-			if existing, ok := catBrands[catKey][brandKey]; ok {
-				existing.productCount++
-				if br.Eligible {
-					existing.eligible = true
-					existing.eligibleCount++
-				}
-				existing.productChildren = append(existing.productChildren, productNode)
-			} else {
-				eligCount := 0
-				if br.Eligible {
-					eligCount = 1
-				}
-				catBrands[catKey][brandKey] = &brandAgg{
-					brand:           brandName,
-					eligible:        br.Eligible,
-					productCount:    1,
-					eligibleCount:   eligCount,
-					productChildren: []map[string]any{productNode},
-				}
-			}
-
 			if br.Eligible && brandName != "Unknown Brand" {
 				openBrandsSet[brandName] = true
 			}
 		}
 
-		// Build category nodes with brand children containing product children.
+		// Build category nodes: category → subcategory → brand.
 		for catKey, ci := range uniqueCats {
 			catSlug := slugify(ci.name)
 
-			var brandChildren []map[string]any
-			if brands, ok := catBrands[catKey]; ok {
-				for _, ba := range brands {
-					brandValue := ba.eligibleCount
-					if brandValue < 1 {
-						brandValue = 1
+			var subcatChildren []map[string]any
+			if subcats, ok := catSubcats[catKey]; ok {
+				for _, sa := range subcats {
+					var brandChildren []map[string]any
+					for _, ba := range sa.brands {
+						brandValue := ba.eligibleCount
+						if brandValue < 1 {
+							brandValue = 1
+						}
+						bn := map[string]any{
+							"id":            fmt.Sprintf("brand-%s", slugify(ba.brand)),
+							"name":          ba.brand,
+							"type":          "brand",
+							"eligible":      ba.eligible,
+							"product_count": ba.productCount,
+							"value":         brandValue,
+						}
+						brandChildren = append(brandChildren, bn)
 					}
-					bn := map[string]any{
-						"id":            fmt.Sprintf("brand-%s", slugify(ba.brand)),
-						"name":          ba.brand,
-						"type":          "brand",
-						"eligible":      ba.eligible,
-						"product_count": ba.productCount,
-						"value":         brandValue,
+
+					subcatValue := sa.eligibleCount
+					if subcatValue < 1 {
+						subcatValue = 1
 					}
-					brandChildren = append(brandChildren, bn)
+					subcatNode := map[string]any{
+						"id":             "subcat-" + slugify(sa.name),
+						"name":           sa.name,
+						"type":           "subcategory",
+						"eligible_count": sa.eligibleCount,
+						"total_count":    sa.totalCount,
+						"value":          subcatValue,
+						"children":       brandChildren,
+					}
+					subcatChildren = append(subcatChildren, subcatNode)
 				}
 			}
 
@@ -269,7 +291,7 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 				"eligible_count": ci.eligibleCount,
 				"total_count":    ci.totalCount,
 				"value":          catValue,
-				"children":       brandChildren,
+				"children":       subcatChildren,
 			}
 			categoryChildren = append(categoryChildren, catNode)
 		}

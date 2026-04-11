@@ -414,7 +414,7 @@ export interface AssessmentOutcome {
 export interface TreeNode {
   id: string;
   name: string;
-  type?: "root" | "category" | "brand" | "product";
+  type?: "root" | "category" | "subcategory" | "brand" | "product";
   open_rate?: number;
   eligible_count?: number;
   total_count?: number;
@@ -432,6 +432,7 @@ export interface ProductDetail {
   title: string;
   brand: string;
   category: string;
+  subcategory?: string;
   price: number;
   est_margin_pct: number;
   seller_count: number;

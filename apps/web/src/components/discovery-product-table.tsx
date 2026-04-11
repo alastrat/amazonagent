@@ -13,7 +13,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
   if (!selectedNode) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        Click a category or brand in the tree to see products
+        Click a category, subcategory, or brand in the tree to see products
       </div>
     );
   }
@@ -23,6 +23,9 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
     .filter((p) => {
       if (selectedNode.type === "category") {
         return p.category === selectedNode.name;
+      }
+      if (selectedNode.type === "subcategory") {
+        return p.subcategory === selectedNode.name;
       }
       if (selectedNode.type === "brand") {
         return p.brand === selectedNode.name;
@@ -40,11 +43,12 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
   });
 
   const downloadCSV = useCallback(() => {
-    const headers = ["ASIN", "Title", "Brand", "Category", "Price", "Margin %", "Sellers", "Eligible"];
+    const headers = ["ASIN", "Title", "Brand", "Subcategory", "Category", "Price", "Margin %", "Sellers", "Eligible"];
     const rows = unique.map((p) => [
       p.asin,
       `"${(p.title || "").replace(/"/g, '""')}"`,
       `"${(p.brand || "").replace(/"/g, '""')}"`,
+      `"${(p.subcategory || "").replace(/"/g, '""')}"`,
       `"${(p.category || "").replace(/"/g, '""')}"`,
       p.price.toFixed(2),
       p.est_margin_pct.toFixed(1),
@@ -87,6 +91,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
               <th className="px-4 py-2 text-left font-medium">ASIN</th>
               <th className="px-4 py-2 text-left font-medium">Title</th>
               <th className="px-4 py-2 text-left font-medium">Brand</th>
+              <th className="px-4 py-2 text-left font-medium">Subcategory</th>
               <th className="px-4 py-2 text-left font-medium">Category</th>
               <th className="px-4 py-2 text-left font-medium">Price</th>
               <th className="px-4 py-2 text-left font-medium">Margin %</th>
@@ -100,6 +105,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
                 <td className="px-4 py-2 font-mono text-xs">{p.asin}</td>
                 <td className="px-4 py-2 max-w-[200px] truncate">{p.title}</td>
                 <td className="px-4 py-2 text-muted-foreground">{p.brand || "—"}</td>
+                <td className="px-4 py-2 text-muted-foreground">{p.subcategory || "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{p.category}</td>
                 <td className="px-4 py-2">${p.price.toFixed(2)}</td>
                 <td className="px-4 py-2">{p.est_margin_pct.toFixed(1)}%</td>

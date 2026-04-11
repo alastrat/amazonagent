@@ -365,6 +365,7 @@ func (s *AssessmentService) scanOneCategory(
 			Title:             p.Title,
 			Brand:             p.Brand,
 			Category:          cat.Name,
+			Subcategory:       p.BSRCategory,
 			AmazonPrice:       p.AmazonPrice,
 			BSRRank:           p.BSRRank,
 			SellerCount:       p.SellerCount,
@@ -398,6 +399,36 @@ func (s *AssessmentService) scanOneCategory(
 		if consecutiveRestricted >= cbPerCategoryLimit {
 			cs.fireBreaker(fmt.Sprintf("per_category_skip:%s_after_%d_restricted", cat.Name, consecutiveRestricted))
 			break
+		}
+	}
+
+	// ── Enrich eligible products with GetProductDetails (real price + seller count) ──
+	var eligibleASINs []string
+	for _, r := range results {
+		if r.Eligible {
+			eligibleASINs = append(eligibleASINs, r.ASIN)
+		}
+	}
+	if len(eligibleASINs) > 0 {
+		enriched, err := spapi.GetProductDetails(ctx, eligibleASINs, "US")
+		cs.addAPICalls((len(eligibleASINs) + 19) / 20) // batch of 20
+		if err != nil {
+			slog.Warn("assessment: enrichment GetProductDetails failed", "category", cat.Name, "error", err)
+		} else {
+			enrichMap := make(map[string]port.ProductSearchResult, len(enriched))
+			for _, e := range enriched {
+				enrichMap[e.ASIN] = e
+			}
+			for i := range results {
+				if e, ok := enrichMap[results[i].ASIN]; ok {
+					if e.AmazonPrice > 0 {
+						results[i].AmazonPrice = e.AmazonPrice
+					}
+					if e.SellerCount > 0 {
+						results[i].SellerCount = e.SellerCount
+					}
+				}
+			}
 		}
 	}
 
@@ -715,6 +746,7 @@ func (s *AssessmentService) persistFingerprint(
 			ASIN:         r.ASIN,
 			Brand:        r.Brand,
 			Category:     r.Category,
+			Subcategory:  r.Subcategory,
 			Tier:         "discovery",
 			Eligible:     r.Eligible,
 			Reason:       r.RestrictionReason,

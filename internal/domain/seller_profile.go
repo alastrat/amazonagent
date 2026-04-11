@@ -86,6 +86,7 @@ type BrandProbeResult struct {
 	ASIN         string  `json:"asin"`
 	Brand        string  `json:"brand"`
 	Category     string  `json:"category"`
+	Subcategory  string  `json:"subcategory"`
 	Tier         string  `json:"tier"` // top, mid, generic, calibration
 	Eligible     bool    `json:"eligible"`
 	Reason       string  `json:"reason,omitempty"`
@@ -115,6 +116,7 @@ type AssessmentSearchResult struct {
 	Title             string  `json:"title"`
 	Brand             string  `json:"brand"`
 	Category          string  `json:"category"`
+	Subcategory       string  `json:"subcategory"`
 	AmazonPrice       float64 `json:"amazon_price"`
 	BSRRank           int     `json:"bsr_rank"`
 	SellerCount       int     `json:"seller_count"`

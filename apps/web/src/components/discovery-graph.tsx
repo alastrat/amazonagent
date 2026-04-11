@@ -37,12 +37,26 @@ function categoryColor(openRate?: number): string {
   return "#eab308"; // yellow
 }
 
+function subcategoryColor(node: TreeNode): string {
+  const eligible = node.eligible_count;
+  const total = node.total_count;
+  if (eligible != null && total != null && total > 0) {
+    const ratio = eligible / total;
+    if (ratio > 0.5) return "#22c55e"; // green
+    if (ratio >= 0.2) return "#eab308"; // yellow
+    return "#ef4444"; // red
+  }
+  return "#eab308"; // yellow fallback
+}
+
 function symbolSizeByType(type?: string): number {
   switch (type) {
     case "root":
       return 20;
     case "category":
       return 14;
+    case "subcategory":
+      return 10;
     case "brand":
       return 9;
     case "product":
@@ -66,6 +80,9 @@ function toEChartsNode(node: TreeNode): EChartsTreeNode {
       break;
     case "category":
       color = categoryColor(node.open_rate);
+      break;
+    case "subcategory":
+      color = subcategoryColor(node);
       break;
     case "brand":
       color = node.eligible ? "#22c55e" : "#ef4444";
@@ -112,6 +129,7 @@ export function DiscoveryGraph({ tree, products: _products, onNodeClick, height 
           const type = nd.type;
           if (type === "root") return `<strong>${d.name}</strong>`;
           if (type === "category") return `<strong>${d.name}</strong><br/>Category`;
+          if (type === "subcategory") return `<strong>${d.name}</strong><br/>Subcategory`;
           if (type === "brand") {
             const badge = nd.eligible ? "Eligible" : "Restricted";
             return `<strong>${d.name}</strong><br/>Brand &middot; ${badge}`;
@@ -127,7 +145,7 @@ export function DiscoveryGraph({ tree, products: _products, onNodeClick, height 
           type: "tree",
           layout: "radial",
           data,
-          initialTreeDepth: 3,
+          initialTreeDepth: 2,
           symbol: "circle",
           symbolSize: (value: number, params: any) => {
             const nd = params?.data?.nodeData;
@@ -167,7 +185,7 @@ export function DiscoveryGraph({ tree, products: _products, onNodeClick, height 
     return {
       click: (params: any) => {
         const nd = params?.data?.nodeData;
-        if (nd && (nd.type === "category" || nd.type === "brand")) {
+        if (nd && (nd.type === "category" || nd.type === "subcategory" || nd.type === "brand")) {
           onNodeClick({
             id: nd.id,
             name: params.data.name,
@@ -204,6 +222,10 @@ export function DiscoveryGraph({ tree, products: _products, onNodeClick, height 
         <span className="flex items-center gap-1">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" /> Restricted / Open
           &lt;20%
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-gray-400" /> Subcategory
+          (colored by eligible ratio)
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block h-3 w-3 rounded border-2 border-indigo-500 bg-indigo-500" />{" "}
