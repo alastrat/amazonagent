@@ -337,6 +337,34 @@ func (s *AssessmentService) scanOneCategory(
 		products = products[:cbProductsPerCategory]
 	}
 
+	// Enrich with brand names via batch ASIN lookup
+	// SearchProducts often returns empty brandName; LookupByIdentifier returns it reliably
+	asins := make([]string, len(products))
+	for i, p := range products {
+		asins[i] = p.ASIN
+	}
+	enriched, err := spapi.LookupByIdentifier(ctx, asins, "ASIN", "US")
+	if err == nil && len(enriched) > 0 {
+		enrichMap := make(map[string]port.ProductSearchResult)
+		for _, e := range enriched {
+			enrichMap[e.ASIN] = e
+		}
+		for i, p := range products {
+			if e, ok := enrichMap[p.ASIN]; ok {
+				if e.Brand != "" && products[i].Brand == "" {
+					products[i].Brand = e.Brand
+				}
+				if e.AmazonPrice > 0 && products[i].AmazonPrice <= 0 {
+					products[i].AmazonPrice = e.AmazonPrice
+				}
+			}
+		}
+		cs.addAPICalls((len(asins) + 19) / 20) // batch calls (20 per request)
+		slog.Info("assessment: brand enrichment complete", "category", cat.Name, "enriched", len(enriched))
+	} else if err != nil {
+		slog.Warn("assessment: brand enrichment failed", "category", cat.Name, "error", err)
+	}
+
 	consecutiveRestricted := 0
 
 	for _, p := range products {

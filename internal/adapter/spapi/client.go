@@ -199,6 +199,11 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 			}
 		}
 
+		// Log brand extraction for diagnostic
+		if p.Brand != "" {
+			slog.Debug("sp-api: brand found", "asin", p.ASIN, "brand", p.Brand)
+		}
+
 		// Parse sales ranks
 		if ranks, ok := item["salesRanks"].([]any); ok {
 			for _, rawRank := range ranks {
@@ -242,7 +247,14 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 	// Enrich with pricing data from competitive pricing API (for products still missing price)
 	c.enrichPricing(ctx, products, marketplace)
 
-	slog.Info("sp-api: search complete", "keywords", keywords, "results", len(products))
+	// Count brands found
+	brandsFound := 0
+	for _, p := range products {
+		if p.Brand != "" {
+			brandsFound++
+		}
+	}
+	slog.Info("sp-api: search complete", "keywords", keywords, "results", len(products), "with_brand", brandsFound)
 	return products, nil
 }
 
