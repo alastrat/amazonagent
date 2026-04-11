@@ -189,6 +189,9 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 			if s, ok := summaries[0].(map[string]any); ok {
 				p.Title, _ = s["itemName"].(string)
 				p.Brand, _ = s["brandName"].(string)
+				if p.Brand == "" {
+					p.Brand, _ = s["brand"].(string)
+				}
 				// itemClassification can be string or object
 				switch cls := s["itemClassification"].(type) {
 				case string:
@@ -307,6 +310,9 @@ func (c *Client) SearchByBrowseNode(ctx context.Context, nodeID string, marketpl
 			if s, ok := summaries[0].(map[string]any); ok {
 				p.Title, _ = s["itemName"].(string)
 				p.Brand, _ = s["brandName"].(string)
+				if p.Brand == "" {
+					p.Brand, _ = s["brand"].(string)
+				}
 				switch cls := s["itemClassification"].(type) {
 				case string:
 					p.Category = cls
@@ -618,6 +624,31 @@ func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, i
 		resp.Body.Close()
 
 		items, _ := raw["items"].([]any)
+
+		// Diagnostic: log brand availability from identifier lookup
+		if len(items) > 0 {
+			brandsFound := 0
+			for _, ri := range items {
+				if itm, ok := ri.(map[string]any); ok {
+					if sums, ok := itm["summaries"].([]any); ok && len(sums) > 0 {
+						if s, ok := sums[0].(map[string]any); ok {
+							if b, _ := s["brandName"].(string); b != "" {
+								brandsFound++
+							}
+						}
+					}
+				}
+			}
+			slog.Info("sp-api: identifier lookup brand check", "total", len(items), "with_brand", brandsFound)
+			// Log first item's raw summaries for debugging
+			if first, ok := items[0].(map[string]any); ok {
+				if sums, ok := first["summaries"].([]any); ok && len(sums) > 0 {
+					sumJSON, _ := json.Marshal(sums[0])
+					slog.Info("sp-api: first item summaries", "raw", string(sumJSON))
+				}
+			}
+		}
+
 		for _, rawItem := range items {
 			item, ok := rawItem.(map[string]any)
 			if !ok {
@@ -633,7 +664,11 @@ func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, i
 			if summaries, ok := item["summaries"].([]any); ok && len(summaries) > 0 {
 				if s, ok := summaries[0].(map[string]any); ok {
 					p.Title, _ = s["itemName"].(string)
+					// SP-API uses "brandName" in keyword search but "brand" in identifier lookup
 					p.Brand, _ = s["brandName"].(string)
+					if p.Brand == "" {
+						p.Brand, _ = s["brand"].(string)
+					}
 				}
 			}
 
