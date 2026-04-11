@@ -707,13 +707,21 @@ func (s *AssessmentService) persistFingerprint(
 	// Build brand results for backward compat
 	var brandResults []domain.BrandProbeResult
 	for _, r := range allResults {
+		estMargin := 0.0
+		if r.AmazonPrice > 0 {
+			estMargin = domain.EstimateMarginPct(r.AmazonPrice)
+		}
 		brandResults = append(brandResults, domain.BrandProbeResult{
-			ASIN:     r.ASIN,
-			Brand:    r.Brand,
-			Category: r.Category,
-			Tier:     "discovery",
-			Eligible: r.Eligible,
-			Reason:   r.RestrictionReason,
+			ASIN:         r.ASIN,
+			Brand:        r.Brand,
+			Category:     r.Category,
+			Tier:         "discovery",
+			Eligible:     r.Eligible,
+			Reason:       r.RestrictionReason,
+			Title:        r.Title,
+			Price:        r.AmazonPrice,
+			EstMarginPct: estMargin,
+			SellerCount:  r.SellerCount,
 		})
 	}
 

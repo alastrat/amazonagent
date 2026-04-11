@@ -83,12 +83,16 @@ type CategoryEligibility struct {
 
 // BrandProbeResult records the eligibility check result for a specific brand ASIN.
 type BrandProbeResult struct {
-	ASIN     string `json:"asin"`
-	Brand    string `json:"brand"`
-	Category string `json:"category"`
-	Tier     string `json:"tier"` // top, mid, generic, calibration
-	Eligible bool   `json:"eligible"`
-	Reason   string `json:"reason,omitempty"`
+	ASIN         string  `json:"asin"`
+	Brand        string  `json:"brand"`
+	Category     string  `json:"category"`
+	Tier         string  `json:"tier"` // top, mid, generic, calibration
+	Eligible     bool    `json:"eligible"`
+	Reason       string  `json:"reason,omitempty"`
+	Title        string  `json:"title"`
+	Price        float64 `json:"price"`
+	EstMarginPct float64 `json:"est_margin_pct"`
+	SellerCount  int     `json:"seller_count"`
 }
 
 // AssessmentProbe defines a single ASIN to check during the assessment scan.

@@ -64,7 +64,7 @@ export function useAssessmentGraph(isPolling: boolean) {
     refetchInterval: (query) => {
       const status = query.state.data?.status;
       if (status === "completed" || status === "failed") return false;
-      return isPolling ? 2000 : false;
+      return isPolling ? 30000 : false; // 30s refresh during scanning
     },
   });
 }

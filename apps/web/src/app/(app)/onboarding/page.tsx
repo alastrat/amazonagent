@@ -17,6 +17,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { StatusPill } from "@/components/status-pill";
 import { DiscoveryGraph } from "@/components/discovery-graph";
+import { DiscoveryProductTable } from "@/components/discovery-product-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,12 @@ const STEPS: Step[] = ["connect", "discover", "reveal", "commit"];
 
 export default function OnboardingPage() {
   const [step, setStep] = useState<Step>("connect");
+  const [selectedNode, setSelectedNode] = useState<{ id: string; name: string; type: string } | null>(null);
+
+  function changeStep(next: Step) {
+    setSelectedNode(null);
+    setStep(next);
+  }
 
   // Connect form state
   const [clientId, setClientId] = useState("");
@@ -53,8 +60,9 @@ export default function OnboardingPage() {
   const connectAccount = useConnectSellerAccount();
   const { data: sellerAccount } = useSellerAccount();
   const startAssessment = useStartAssessment();
+  const [graphPaused, setGraphPaused] = useState(false);
   const { data: assessment } = useAssessmentStatus(step === "discover");
-  const { data: graphData } = useAssessmentGraph(step === "discover");
+  const { data: graphData } = useAssessmentGraph(step === "discover" && !graphPaused);
   const { data: profileData, isLoading: profileLoading } = useProfile(
     step === "reveal" || step === "commit",
   );
@@ -66,13 +74,13 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (sellerAccount?.status === "valid" && step === "connect") {
       if (assessment?.status === "completed") {
-        setStep("reveal");
+        changeStep("reveal");
       } else if (assessment?.status === "running") {
-        setStep("discover");
+        changeStep("discover");
       } else {
         // Account connected but no assessment — start it automatically
         startAssessment.mutate(undefined, {
-          onSuccess: () => setStep("discover"),
+          onSuccess: () => changeStep("discover"),
         });
       }
     }
@@ -81,7 +89,7 @@ export default function OnboardingPage() {
   // Auto-advance from discover -> reveal when assessment completes
   useEffect(() => {
     if (step === "discover" && graphData?.status === "completed") {
-      setStep("reveal");
+      changeStep("reveal");
     }
   }, [step, graphData?.status]);
 
@@ -104,7 +112,7 @@ export default function OnboardingPage() {
           }
           // Start the assessment automatically after connecting
           startAssessment.mutate(undefined, {
-            onSuccess: () => setStep("discover"),
+            onSuccess: () => changeStep("discover"),
           });
         },
         onError: (err) => {
@@ -117,7 +125,7 @@ export default function OnboardingPage() {
   function handleApproveStrategy() {
     if (!draftVersion) return;
     activateVersion.mutate(draftVersion.id, {
-      onSuccess: () => setStep("commit"),
+      onSuccess: () => changeStep("commit"),
     });
   }
 
@@ -299,11 +307,37 @@ export default function OnboardingPage() {
           {/* Graph visualization */}
           {tree && (
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-base">Discovery Graph</CardTitle>
+                {step === "discover" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setGraphPaused((p) => !p)}
+                  >
+                    {graphPaused ? "Resume" : "Pause"}
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
-                <DiscoveryGraph tree={tree} width={680} height={440} />
+                <DiscoveryGraph
+                  tree={tree}
+                  products={graphData?.products}
+                  onNodeClick={(node) =>
+                    setSelectedNode((prev) =>
+                      prev?.id === node.id ? null : node,
+                    )
+                  }
+                  height={440}
+                />
+                {graphData?.products && graphData.products.length > 0 && (
+                  <div className="mt-4">
+                    <DiscoveryProductTable
+                      products={graphData.products}
+                      selectedNode={selectedNode}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -586,12 +620,29 @@ export default function OnboardingPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <DiscoveryGraph tree={tree} width={680} height={440} />
+                    <DiscoveryGraph
+                      tree={tree}
+                      products={graphData?.products}
+                      onNodeClick={(node) =>
+                        setSelectedNode((prev) =>
+                          prev?.id === node.id ? null : node,
+                        )
+                      }
+                      height={500}
+                    />
+                    {graphData?.products && graphData.products.length > 0 && (
+                      <div className="mt-4">
+                        <DiscoveryProductTable
+                          products={graphData.products}
+                          selectedNode={selectedNode}
+                        />
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
 
-              <Button onClick={() => setStep("commit")}>Continue to Approval</Button>
+              <Button onClick={() => changeStep("commit")}>Continue to Approval</Button>
             </>
           )}
         </div>
@@ -609,7 +660,7 @@ export default function OnboardingPage() {
               receiving product suggestions.
             </p>
             <div className="flex gap-3">
-              <Button onClick={() => setStep("reveal")} variant="outline">
+              <Button onClick={() => changeStep("reveal")} variant="outline">
                 Back to Review
               </Button>
               <Button onClick={handleApproveStrategy} disabled={activateVersion.isPending}>

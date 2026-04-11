@@ -62,14 +62,14 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 
 	// Load brand results
 	brandRows, err := r.pool.Query(ctx, `
-		SELECT asin, brand, category, tier, eligible, reason
+		SELECT asin, brand, category, tier, eligible, reason, title, price, est_margin_pct, seller_count
 		FROM assessment_probe_results WHERE tenant_id = $1
 	`, tenantID)
 	if err == nil {
 		defer brandRows.Close()
 		for brandRows.Next() {
 			var br domain.BrandProbeResult
-			if err := brandRows.Scan(&br.ASIN, &br.Brand, &br.Category, &br.Tier, &br.Eligible, &br.Reason); err != nil {
+			if err := brandRows.Scan(&br.ASIN, &br.Brand, &br.Category, &br.Tier, &br.Eligible, &br.Reason, &br.Title, &br.Price, &br.EstMarginPct, &br.SellerCount); err != nil {
 				return nil, fmt.Errorf("scan brand probe result: %w", err)
 			}
 			fp.BrandResults = append(fp.BrandResults, br)
@@ -82,10 +82,10 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 func (r *EligibilityFingerprintRepo) SaveProbeResults(ctx context.Context, fingerprintID string, tenantID domain.TenantID, results []domain.BrandProbeResult) error {
 	rows := make([][]any, len(results))
 	for i, res := range results {
-		rows[i] = []any{fingerprintID, tenantID, res.ASIN, res.Brand, res.Category, res.Tier, res.Eligible, res.Reason}
+		rows[i] = []any{fingerprintID, tenantID, res.ASIN, res.Brand, res.Category, res.Tier, res.Eligible, res.Reason, res.Title, res.Price, res.EstMarginPct, res.SellerCount}
 	}
 	return BatchInsert(ctx, r.pool, "assessment_probe_results",
-		[]string{"fingerprint_id", "tenant_id", "asin", "brand", "category", "tier", "eligible", "reason"}, rows)
+		[]string{"fingerprint_id", "tenant_id", "asin", "brand", "category", "tier", "eligible", "reason", "title", "price", "est_margin_pct", "seller_count"}, rows)
 }
 
 func (r *EligibilityFingerprintRepo) SaveCategoryEligibilities(ctx context.Context, fingerprintID string, tenantID domain.TenantID, categories []domain.CategoryEligibility) error {

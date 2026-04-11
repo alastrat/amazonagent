@@ -1,190 +1,194 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
-import Tree from "react-d3-tree";
-import type { RawNodeDatum, CustomNodeElementProps } from "react-d3-tree";
-import type { TreeNode } from "@/lib/types";
+import { useMemo } from "react";
+import ReactECharts from "echarts-for-react";
+import type { TreeNode, ProductDetail } from "@/lib/types";
+
+// ---------- types ----------
+
+interface EChartsTreeNode {
+  name: string;
+  value?: number;
+  children?: EChartsTreeNode[];
+  itemStyle?: { color: string; borderColor?: string };
+  label?: { color?: string };
+  // custom data passed through for click handler
+  nodeData?: {
+    id: string;
+    type: string;
+    asin?: string;
+    eligible?: boolean;
+  };
+}
+
+interface Props {
+  tree: TreeNode;
+  products?: ProductDetail[];
+  onNodeClick?: (node: { id: string; name: string; type: string }) => void;
+  height?: number;
+}
 
 // ---------- helpers ----------
 
-function categoryBorderColor(openRate?: number): string {
+function categoryColor(openRate?: number): string {
   if (openRate == null) return "#eab308"; // yellow fallback
   if (openRate > 50) return "#22c55e"; // green
   if (openRate < 20) return "#ef4444"; // red
   return "#eab308"; // yellow
 }
 
-/** Convert backend TreeNode to react-d3-tree RawNodeDatum */
-function toRawNode(node: TreeNode): RawNodeDatum {
-  return {
-    name: node.name,
-    attributes: {
-      id: node.id,
-      type: node.type ?? "root",
-      ...(node.open_rate != null ? { open_rate: node.open_rate } : {}),
-      ...(node.eligible_count != null ? { eligible_count: node.eligible_count } : {}),
-      ...(node.total_count != null ? { total_count: node.total_count } : {}),
-      ...(node.eligible != null ? { eligible: String(node.eligible) } : {}),
-    },
-    children: node.children?.map(toRawNode) ?? [],
-  };
+function symbolSizeByType(type?: string): number {
+  switch (type) {
+    case "root":
+      return 20;
+    case "category":
+      return 14;
+    case "brand":
+      return 9;
+    case "product":
+      return 5;
+    default:
+      return 10;
+  }
 }
 
-// ---------- custom node rendering ----------
+/** Convert backend TreeNode to ECharts tree data format */
+function toEChartsNode(node: TreeNode): EChartsTreeNode {
+  const type = node.type ?? "root";
 
-function renderCustomNode({ nodeDatum, toggleNode }: CustomNodeElementProps) {
-  const attrs = nodeDatum.attributes ?? {};
-  const nodeType = (attrs.type as string) ?? "root";
-  const openRate = attrs.open_rate != null ? Number(attrs.open_rate) : undefined;
-  const eligibleCount = attrs.eligible_count != null ? Number(attrs.eligible_count) : undefined;
-  const totalCount = attrs.total_count != null ? Number(attrs.total_count) : undefined;
-  const eligible = attrs.eligible === "true";
+  let color: string;
+  let borderColor: string | undefined;
 
-  if (nodeType === "root") {
-    return (
-      <g onClick={toggleNode} style={{ cursor: "pointer" }}>
-        <circle r={18} fill="#6366f1" stroke="#4f46e5" strokeWidth={2} />
-        <text
-          dy="0.35em"
-          textAnchor="middle"
-          fill="white"
-          fontSize={9}
-          fontWeight="bold"
-          style={{ pointerEvents: "none" }}
-        >
-          {nodeDatum.name}
-        </text>
-      </g>
-    );
+  switch (type) {
+    case "root":
+      color = "#6366f1";
+      borderColor = "#4f46e5";
+      break;
+    case "category":
+      color = categoryColor(node.open_rate);
+      break;
+    case "brand":
+      color = node.eligible ? "#22c55e" : "#ef4444";
+      break;
+    case "product":
+      color = node.eligible ? "#86efac" : "#fca5a5";
+      break;
+    default:
+      color = "#6b7280";
   }
 
-  if (nodeType === "category") {
-    const border = categoryBorderColor(openRate);
-    const w = 160;
-    const h = 48;
-    return (
-      <g onClick={toggleNode} style={{ cursor: "pointer" }}>
-        <rect
-          x={-w / 2}
-          y={-h / 2}
-          width={w}
-          height={h}
-          rx={6}
-          fill="white"
-          stroke={border}
-          strokeWidth={2.5}
-        />
-        {/* Name */}
-        <text
-          dy={eligibleCount != null ? "-0.3em" : "0.35em"}
-          textAnchor="middle"
-          fill="#1f2937"
-          fontSize={11}
-          fontWeight={600}
-          style={{ pointerEvents: "none" }}
-        >
-          {nodeDatum.name.length > 20 ? nodeDatum.name.slice(0, 18) + "..." : nodeDatum.name}
-        </text>
-        {/* Stats line */}
-        {eligibleCount != null && totalCount != null && (
-          <text
-            dy="1.1em"
-            textAnchor="middle"
-            fill="#6b7280"
-            fontSize={9}
-            style={{ pointerEvents: "none" }}
-          >
-            {eligibleCount}/{totalCount} eligible
-          </text>
-        )}
-        {/* Open rate badge */}
-        {openRate != null && (
-          <>
-            <rect
-              x={w / 2 - 34}
-              y={-h / 2 - 8}
-              width={32}
-              height={16}
-              rx={8}
-              fill={border}
-            />
-            <text
-              x={w / 2 - 18}
-              y={-h / 2 + 4}
-              textAnchor="middle"
-              fill="white"
-              fontSize={9}
-              fontWeight={600}
-              style={{ pointerEvents: "none" }}
-            >
-              {openRate}%
-            </text>
-          </>
-        )}
-      </g>
-    );
+  const result: EChartsTreeNode = {
+    name: node.name,
+    value: node.value,
+    itemStyle: { color, ...(borderColor ? { borderColor } : {}) },
+    nodeData: {
+      id: node.id,
+      type,
+      asin: node.asin,
+      eligible: node.eligible,
+    },
+  };
+
+  if (node.children && node.children.length > 0) {
+    result.children = node.children.map(toEChartsNode);
   }
 
-  // Brand node
-  const dotColor = eligible ? "#22c55e" : "#ef4444";
-  return (
-    <g style={{ cursor: "default" }}>
-      <circle r={8} fill={dotColor} stroke={eligible ? "#16a34a" : "#dc2626"} strokeWidth={1.5} />
-      <text
-        x={14}
-        dy="0.35em"
-        textAnchor="start"
-        fill="#374151"
-        fontSize={10}
-        style={{ pointerEvents: "none" }}
-      >
-        {nodeDatum.name}
-      </text>
-    </g>
-  );
+  return result;
 }
 
 // ---------- component ----------
 
-export function DiscoveryGraph({
-  tree,
-  width = 680,
-  height = 440,
-}: {
-  tree: TreeNode;
-  width?: number;
-  height?: number;
-}) {
-  const data = useMemo(() => toRawNode(tree), [tree]);
+export function DiscoveryGraph({ tree, products: _products, onNodeClick, height = 440 }: Props) {
+  const data = useMemo(() => [toEChartsNode(tree)], [tree]);
 
-  const translate = useMemo(() => ({ x: 80, y: height / 2 }), [height]);
-
-  const nodeSize = useMemo(() => ({ x: 220, y: 70 }), []);
-
-  const renderNode = useCallback(
-    (props: CustomNodeElementProps) => renderCustomNode(props),
-    [],
+  const option = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "item" as const,
+        formatter: (params: any) => {
+          const d = params.data;
+          const nd = d?.nodeData;
+          if (!nd) return d?.name ?? "";
+          const type = nd.type;
+          if (type === "root") return `<strong>${d.name}</strong>`;
+          if (type === "category") return `<strong>${d.name}</strong><br/>Category`;
+          if (type === "brand") {
+            const badge = nd.eligible ? "Eligible" : "Restricted";
+            return `<strong>${d.name}</strong><br/>Brand &middot; ${badge}`;
+          }
+          if (type === "product") {
+            return `<strong>${d.name}</strong><br/>ASIN: ${nd.asin ?? "N/A"}`;
+          }
+          return d.name;
+        },
+      },
+      series: [
+        {
+          type: "tree",
+          layout: "radial",
+          data,
+          initialTreeDepth: 3,
+          symbol: "circle",
+          symbolSize: (value: number, params: any) => {
+            const nd = params?.data?.nodeData;
+            return symbolSizeByType(nd?.type);
+          },
+          emphasis: {
+            focus: "descendant" as const,
+          },
+          animationDurationUpdate: 750,
+          roam: true,
+          label: {
+            show: true,
+            fontSize: 10,
+            formatter: (params: any) => {
+              const name = params?.data?.name ?? "";
+              return name.length > 22 ? name.slice(0, 20) + "..." : name;
+            },
+          },
+          lineStyle: {
+            color: "#d1d5db",
+            width: 1,
+          },
+          leaves: {
+            label: {
+              show: true,
+              fontSize: 9,
+            },
+          },
+        },
+      ],
+    }),
+    [data],
   );
+
+  const onEvents = useMemo((): Record<string, Function> => {
+    if (!onNodeClick) return {} as Record<string, Function>;
+    return {
+      click: (params: any) => {
+        const nd = params?.data?.nodeData;
+        if (nd && (nd.type === "category" || nd.type === "brand")) {
+          onNodeClick({
+            id: nd.id,
+            name: params.data.name,
+            type: nd.type,
+          });
+        }
+      },
+    };
+  }, [onNodeClick]);
 
   return (
     <div className="relative">
       <div
-        style={{ width, height }}
+        style={{ height }}
         className="rounded-lg border bg-white overflow-hidden"
       >
-        <Tree
-          data={data}
-          orientation="horizontal"
-          translate={translate}
-          nodeSize={nodeSize}
-          renderCustomNodeElement={renderNode}
-          pathFunc="step"
-          collapsible
-          initialDepth={1}
-          zoomable
-          draggable
-          separation={{ siblings: 1, nonSiblings: 1.4 }}
-          pathClassFunc={() => "stroke-gray-300 stroke-1 fill-none"}
+        <ReactECharts
+          option={option}
+          style={{ height: "100%", width: "100%" }}
+          onEvents={onEvents}
+          notMerge
         />
       </div>
       {/* Colour legend */}

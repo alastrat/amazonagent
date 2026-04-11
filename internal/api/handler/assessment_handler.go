@@ -97,14 +97,11 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build a lookup from DiscoveryCategories for canonical category names.
-	// Keys are lowercased names for fuzzy matching.
 	discoveryCatNames := make(map[string]string, len(service.DiscoveryCategories))
 	for _, dc := range service.DiscoveryCategories {
 		discoveryCatNames[strings.ToLower(dc.Name)] = dc.Name
 	}
 
-	// resolveCategoryName maps a possibly-empty or SP-API category string
-	// to the canonical DiscoveryCategories name.
 	resolveCategoryName := func(raw string) string {
 		if raw == "" {
 			return "Uncategorized"
@@ -115,7 +112,6 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 		return raw
 	}
 
-	// slugify produces a URL-safe ID fragment from a name.
 	slugify := func(name string) string {
 		s := strings.ToLower(name)
 		s = strings.ReplaceAll(s, " & ", "-")
@@ -124,31 +120,21 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 		return s
 	}
 
-	// ── Build tree structure ──────────────────────────────────────
-
-	type brandNode struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Type         string `json:"type"`
-		Eligible     bool   `json:"eligible"`
-		ProductCount int    `json:"product_count"`
+	truncate := func(s string, maxLen int) string {
+		if len(s) <= maxLen {
+			return s
+		}
+		return s[:maxLen-1] + "…"
 	}
 
-	type categoryNode struct {
-		ID            string      `json:"id"`
-		Name          string      `json:"name"`
-		Type          string      `json:"type"`
-		OpenRate      float64     `json:"open_rate"`
-		EligibleCount int         `json:"eligible_count"`
-		TotalCount    int         `json:"total_count"`
-		Children      []brandNode `json:"children"`
-	}
+	// ── Build tree: Root → Categories → Brands → Products ────────
 
-	var categoryChildren []categoryNode
+	var categoryChildren []map[string]any
+	var allProducts []map[string]any
 	openBrandsSet := make(map[string]bool)
 
 	if fingerprint != nil {
-		// Deduplicate categories from fingerprint using a map.
+		// Deduplicate categories from fingerprint.
 		type catInfo struct {
 			name          string
 			openRate      float64
@@ -175,12 +161,13 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Group brand results by category, then by brand within each category.
-		// brand key = lowercase(category + "|" + brand)
+		// Group brand results by category → brand, collecting product nodes.
 		type brandAgg struct {
-			brand        string
-			eligible     bool   // true if ANY product in this brand is eligible
-			productCount int
+			brand           string
+			eligible        bool
+			productCount    int
+			eligibleCount   int
+			productChildren []map[string]any
 		}
 		catBrands := make(map[string]map[string]*brandAgg) // catKey -> brandKey -> agg
 
@@ -189,23 +176,56 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 			catKey := strings.ToLower(resolvedCat)
 			brandName := br.Brand
 			if brandName == "" {
-				brandName = "Unknown Brand"
+				brandName = "Other"
 			}
 			brandKey := strings.ToLower(brandName)
 
 			if catBrands[catKey] == nil {
 				catBrands[catKey] = make(map[string]*brandAgg)
 			}
+
+			productNode := map[string]any{
+				"id":             "product-" + br.ASIN,
+				"name":           truncate(br.Title, 40),
+				"type":           "product",
+				"asin":           br.ASIN,
+				"price":          br.Price,
+				"est_margin_pct": br.EstMarginPct,
+				"seller_count":   br.SellerCount,
+				"eligible":       br.Eligible,
+				"value":          1,
+			}
+
+			// Flat products array for click-to-table
+			allProducts = append(allProducts, map[string]any{
+				"asin":           br.ASIN,
+				"title":          br.Title,
+				"brand":          brandName,
+				"category":       resolvedCat,
+				"price":          br.Price,
+				"est_margin_pct": br.EstMarginPct,
+				"seller_count":   br.SellerCount,
+				"eligible":       br.Eligible,
+			})
+
 			if existing, ok := catBrands[catKey][brandKey]; ok {
 				existing.productCount++
 				if br.Eligible {
 					existing.eligible = true
+					existing.eligibleCount++
 				}
+				existing.productChildren = append(existing.productChildren, productNode)
 			} else {
+				eligCount := 0
+				if br.Eligible {
+					eligCount = 1
+				}
 				catBrands[catKey][brandKey] = &brandAgg{
-					brand:        brandName,
-					eligible:     br.Eligible,
-					productCount: 1,
+					brand:           brandName,
+					eligible:        br.Eligible,
+					productCount:    1,
+					eligibleCount:   eligCount,
+					productChildren: []map[string]any{productNode},
 				}
 			}
 
@@ -214,40 +234,57 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Build category nodes with brand children.
+		// Build category nodes with brand children containing product children.
 		for catKey, ci := range uniqueCats {
 			catSlug := slugify(ci.name)
-			catNode := categoryNode{
-				ID:            "cat-" + catSlug,
-				Name:          ci.name,
-				Type:          "category",
-				OpenRate:      ci.openRate,
-				EligibleCount: ci.eligibleCount,
-				TotalCount:    ci.totalCount,
-			}
 
+			var brandChildren []map[string]any
 			if brands, ok := catBrands[catKey]; ok {
 				for _, ba := range brands {
-					bn := brandNode{
-						ID:           fmt.Sprintf("brand-%s", slugify(ba.brand)),
-						Name:         ba.brand,
-						Type:         "brand",
-						Eligible:     ba.eligible,
-						ProductCount: ba.productCount,
+					brandValue := ba.eligibleCount
+					if brandValue < 1 {
+						brandValue = 1
 					}
-					catNode.Children = append(catNode.Children, bn)
+					bn := map[string]any{
+						"id":            fmt.Sprintf("brand-%s", slugify(ba.brand)),
+						"name":          ba.brand,
+						"type":          "brand",
+						"eligible":      ba.eligible,
+						"product_count": ba.productCount,
+						"value":         brandValue,
+					}
+					brandChildren = append(brandChildren, bn)
 				}
 			}
 
+			catValue := ci.eligibleCount
+			if catValue < 1 {
+				catValue = 1
+			}
+			catNode := map[string]any{
+				"id":             "cat-" + catSlug,
+				"name":           ci.name,
+				"type":           "category",
+				"open_rate":      ci.openRate,
+				"eligible_count": ci.eligibleCount,
+				"total_count":    ci.totalCount,
+				"value":          catValue,
+				"children":       brandChildren,
+			}
 			categoryChildren = append(categoryChildren, catNode)
 		}
 	}
 
 	// ── Build tree root ───────────────────────────────────────────
 
+	rootValue := len(categoryChildren)
+	if rootValue < 1 {
+		rootValue = 1
+	}
 	tree := map[string]any{
 		"id":       "root",
 		"name":     "Amazon US",
+		"value":    rootValue,
 		"children": categoryChildren,
 	}
 
@@ -258,7 +295,6 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 	restrictedProducts := 0
 
 	if fingerprint != nil {
-		// Deduplicate categories for the scanned count.
 		seen := make(map[string]bool)
 		for _, cat := range fingerprint.Categories {
 			resolved := resolveCategoryName(cat.Category)
@@ -281,9 +317,10 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, map[string]any{
-		"status": status,
-		"tree":   tree,
-		"stats":  stats,
+		"status":   status,
+		"tree":     tree,
+		"products": allProducts,
+		"stats":    stats,
 	})
 }
 
