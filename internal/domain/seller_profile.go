@@ -83,17 +83,19 @@ type CategoryEligibility struct {
 
 // BrandProbeResult records the eligibility check result for a specific brand ASIN.
 type BrandProbeResult struct {
-	ASIN         string  `json:"asin"`
-	Brand        string  `json:"brand"`
-	Category     string  `json:"category"`
-	Subcategory  string  `json:"subcategory"`
-	Tier         string  `json:"tier"` // top, mid, generic, calibration
-	Eligible     bool    `json:"eligible"`
-	Reason       string  `json:"reason,omitempty"`
-	Title        string  `json:"title"`
-	Price        float64 `json:"price"`
-	EstMarginPct float64 `json:"est_margin_pct"`
-	SellerCount  int     `json:"seller_count"`
+	ASIN              string  `json:"asin"`
+	Brand             string  `json:"brand"`
+	Category          string  `json:"category"`
+	Subcategory       string  `json:"subcategory"`
+	Tier              string  `json:"tier"` // top, mid, generic, calibration
+	Eligible          bool    `json:"eligible"`
+	EligibilityStatus string  `json:"eligibility_status"` // eligible, ungatable, restricted
+	Reason            string  `json:"reason,omitempty"`
+	ApprovalURL       string  `json:"approval_url,omitempty"`
+	Title             string  `json:"title"`
+	Price             float64 `json:"price"`
+	EstMarginPct      float64 `json:"est_margin_pct"`
+	SellerCount       int     `json:"seller_count"`
 }
 
 // AssessmentProbe defines a single ASIN to check during the assessment scan.
@@ -121,7 +123,9 @@ type AssessmentSearchResult struct {
 	BSRRank           int     `json:"bsr_rank"`
 	SellerCount       int     `json:"seller_count"`
 	Eligible          bool    `json:"eligible"`
+	EligibilityStatus string  `json:"eligibility_status"` // eligible, ungatable, restricted
 	RestrictionReason string  `json:"restriction_reason,omitempty"`
+	ApprovalURL       string  `json:"approval_url,omitempty"`
 }
 
 // AssessmentOutcome wraps either an OpportunityResult (products found) or
@@ -134,6 +138,8 @@ type AssessmentOutcome struct {
 	// Metadata about the assessment run
 	TotalSearched     int     `json:"total_searched"`
 	TotalEligible     int     `json:"total_eligible"`
+	TotalUngatable    int     `json:"total_ungatable"`
+	TotalRestricted   int     `json:"total_restricted"`
 	TotalQualified    int     `json:"total_qualified"`
 	APICallsUsed      int     `json:"api_calls_used"`
 	DurationSeconds   float64 `json:"duration_seconds"`

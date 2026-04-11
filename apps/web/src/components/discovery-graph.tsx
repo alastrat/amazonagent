@@ -18,6 +18,7 @@ interface EChartsTreeNode {
     type: string;
     asin?: string;
     eligible?: boolean;
+    eligibility_status?: string;
   };
 }
 
@@ -38,15 +39,25 @@ function categoryColor(openRate?: number): string {
 }
 
 function subcategoryColor(node: TreeNode): string {
-  const eligible = node.eligible_count;
+  const eligible = node.eligible_count ?? 0;
+  const ungatable = node.ungatable_count ?? 0;
   const total = node.total_count;
-  if (eligible != null && total != null && total > 0) {
-    const ratio = eligible / total;
-    if (ratio > 0.5) return "#22c55e"; // green
-    if (ratio >= 0.2) return "#eab308"; // yellow
+  if (total != null && total > 0) {
+    const openRatio = eligible / total;
+    const accessibleRatio = (eligible + ungatable) / total;
+    if (openRatio > 0.5) return "#22c55e"; // green — mostly eligible
+    if (accessibleRatio > 0.5) return "#f59e0b"; // amber — mostly ungatable
+    if (accessibleRatio >= 0.2) return "#eab308"; // yellow
     return "#ef4444"; // red
   }
   return "#eab308"; // yellow fallback
+}
+
+function brandColor(node: TreeNode): string {
+  const status = node.eligibility_status;
+  if (status === "eligible") return "#22c55e"; // green
+  if (status === "ungatable") return "#f59e0b"; // amber
+  return "#ef4444"; // red — restricted
 }
 
 function symbolSizeByType(type?: string): number {
@@ -85,7 +96,7 @@ function toEChartsNode(node: TreeNode): EChartsTreeNode {
       color = subcategoryColor(node);
       break;
     case "brand":
-      color = node.eligible ? "#22c55e" : "#ef4444";
+      color = brandColor(node);
       break;
     case "product":
       color = node.eligible ? "#86efac" : "#fca5a5";
@@ -103,6 +114,7 @@ function toEChartsNode(node: TreeNode): EChartsTreeNode {
       type,
       asin: node.asin,
       eligible: node.eligible,
+      eligibility_status: node.eligibility_status,
     },
   };
 

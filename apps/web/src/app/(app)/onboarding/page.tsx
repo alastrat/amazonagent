@@ -149,10 +149,11 @@ export default function OnboardingPage() {
   const graph: AssessmentGraph | undefined = graphData?.graph;
   const rawTree: TreeNode | undefined = graphData?.tree;
 
-  // Filter tree to only show eligible branches when toggle is on
+  // Filter tree to only show eligible + ungatable branches when toggle is on
   function filterEligible(node: TreeNode): TreeNode | null {
     if (node.type === "brand") {
-      return node.eligible ? node : null;
+      const status = node.eligibility_status ?? (node.eligible ? "eligible" : "restricted");
+      return status === "eligible" || status === "ungatable" ? node : null;
     }
     if (node.children) {
       const filteredChildren = node.children
@@ -315,15 +316,21 @@ export default function OnboardingPage() {
               {graph?.stats && (
                 <div className="flex gap-6 text-sm">
                   <div>
-                    <span className="font-medium">{graph.stats.eligible_products}</span>{" "}
-                    <span className="text-muted-foreground">eligible products</span>
+                    <span className="font-medium text-green-600">{graph.stats.eligible_products}</span>{" "}
+                    <span className="text-muted-foreground">eligible</span>
                   </div>
+                  {graph.stats.ungatable_products > 0 && (
+                    <div>
+                      <span className="font-medium text-amber-600">{graph.stats.ungatable_products}</span>{" "}
+                      <span className="text-muted-foreground">can apply</span>
+                    </div>
+                  )}
                   <div>
                     <span className="font-medium">{graph.stats.open_brands}</span>{" "}
                     <span className="text-muted-foreground">open brands</span>
                   </div>
                   <div>
-                    <span className="font-medium">{graph.stats.restricted_products}</span>{" "}
+                    <span className="font-medium text-red-600">{graph.stats.restricted_products}</span>{" "}
                     <span className="text-muted-foreground">restricted</span>
                   </div>
                   {graph.stats.qualified_products != null && graph.stats.qualified_products > 0 && (

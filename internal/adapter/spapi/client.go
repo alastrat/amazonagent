@@ -544,7 +544,7 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 		// No seller ID — can't check, assume all allowed
 		var results []port.ListingRestriction
 		for _, asin := range asins {
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true, Status: port.EligibilityEligible})
 		}
 		return results, nil
 	}
@@ -557,7 +557,7 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 		resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "listing_restrictions")
 		if err != nil {
 			slog.Warn("sp-api: eligibility check failed", "asin", asin, "error", err)
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true}) // fail open
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true, Status: port.EligibilityEligible}) // fail open
 			continue
 		}
 
@@ -567,11 +567,14 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 
 		restrictions, _ := raw["restrictions"].([]any)
 		if len(restrictions) == 0 {
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true, Status: port.EligibilityEligible})
 			slog.Debug("sp-api: eligible", "asin", asin)
 		} else {
-			// Extract reason
 			reason := "Restricted"
+			reasonCode := ""
+			approvalURL := ""
+			status := port.EligibilityRestricted
+
 			if r, ok := restrictions[0].(map[string]any); ok {
 				if reasons, ok := r["reasons"].([]any); ok {
 					for _, rr := range reasons {
@@ -579,12 +582,38 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 							if msg, ok := rm["message"].(string); ok && msg != "" {
 								reason = msg
 							}
+							if rc, ok := rm["reasonCode"].(string); ok {
+								reasonCode = rc
+							}
+							// Check for approval links
+							if links, ok := rm["links"].([]any); ok {
+								for _, l := range links {
+									if lm, ok := l.(map[string]any); ok {
+										if res, ok := lm["resource"].(string); ok && res != "" {
+											approvalURL = res
+										}
+									}
+								}
+							}
 						}
 					}
 				}
 			}
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: false, Reason: reason})
-			slog.Info("sp-api: not eligible", "asin", asin, "reason", reason)
+
+			// APPROVAL_REQUIRED with a link = ungatable (seller can apply)
+			if reasonCode == "APPROVAL_REQUIRED" || approvalURL != "" {
+				status = port.EligibilityUngatable
+			}
+
+			results = append(results, port.ListingRestriction{
+				ASIN:        asin,
+				Allowed:     false,
+				Reason:      reason,
+				ReasonCode:  reasonCode,
+				ApprovalURL: approvalURL,
+				Status:      status,
+			})
+			slog.Info("sp-api: not eligible", "asin", asin, "reason", reason, "reasonCode", reasonCode, "status", status, "approvalURL", approvalURL)
 		}
 	}
 

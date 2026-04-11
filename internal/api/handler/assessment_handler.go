@@ -156,16 +156,20 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 
 		// Group brand results by category → subcategory → brand.
 		type brandAgg struct {
-			brand         string
-			eligible      bool
-			productCount  int
-			eligibleCount int
+			brand           string
+			eligible        bool
+			productCount    int
+			eligibleCount   int
+			ungatableCount  int
+			restrictedCount int
+			bestStatus      string // best status among products: eligible > ungatable > restricted
 		}
 		type subcatAgg struct {
-			name          string
-			eligibleCount int
-			totalCount    int
-			brands        map[string]*brandAgg // brandKey -> agg
+			name           string
+			eligibleCount  int
+			ungatableCount int
+			totalCount     int
+			brands         map[string]*brandAgg // brandKey -> agg
 		}
 		// catKey -> subcatKey -> subcatAgg
 		catSubcats := make(map[string]map[string]*subcatAgg)
@@ -185,6 +189,15 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 			}
 			subcatKey := strings.ToLower(subcatName)
 
+			eligStatus := br.EligibilityStatus
+			if eligStatus == "" {
+				if br.Eligible {
+					eligStatus = "eligible"
+				} else {
+					eligStatus = "restricted"
+				}
+			}
+
 			if catSubcats[catKey] == nil {
 				catSubcats[catKey] = make(map[string]*subcatAgg)
 			}
@@ -197,43 +210,68 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 				catSubcats[catKey][subcatKey] = sa
 			}
 			sa.totalCount++
-			if br.Eligible {
+			switch eligStatus {
+			case "eligible":
 				sa.eligibleCount++
+			case "ungatable":
+				sa.ungatableCount++
 			}
 
 			if existing, ok := sa.brands[brandKey]; ok {
 				existing.productCount++
-				if br.Eligible {
+				switch eligStatus {
+				case "eligible":
 					existing.eligible = true
 					existing.eligibleCount++
+					existing.bestStatus = "eligible"
+				case "ungatable":
+					existing.ungatableCount++
+					if existing.bestStatus != "eligible" {
+						existing.bestStatus = "ungatable"
+					}
+				default:
+					existing.restrictedCount++
 				}
 			} else {
-				eligCount := 0
-				if br.Eligible {
+				bs := eligStatus
+				elig := eligStatus == "eligible"
+				eligCount, ungCount, resCount := 0, 0, 0
+				switch eligStatus {
+				case "eligible":
 					eligCount = 1
+				case "ungatable":
+					ungCount = 1
+				default:
+					resCount = 1
+					bs = "restricted"
 				}
 				sa.brands[brandKey] = &brandAgg{
-					brand:         brandName,
-					eligible:      br.Eligible,
-					productCount:  1,
-					eligibleCount: eligCount,
+					brand:           brandName,
+					eligible:        elig,
+					productCount:    1,
+					eligibleCount:   eligCount,
+					ungatableCount:  ungCount,
+					restrictedCount: resCount,
+					bestStatus:      bs,
 				}
 			}
 
 			// Flat products array for click-to-table
 			allProducts = append(allProducts, map[string]any{
-				"asin":           br.ASIN,
-				"title":          br.Title,
-				"brand":          brandName,
-				"category":       resolvedCat,
-				"subcategory":    subcatName,
-				"price":          br.Price,
-				"est_margin_pct": br.EstMarginPct,
-				"seller_count":   br.SellerCount,
-				"eligible":       br.Eligible,
+				"asin":               br.ASIN,
+				"title":              br.Title,
+				"brand":              brandName,
+				"category":           resolvedCat,
+				"subcategory":        subcatName,
+				"price":              br.Price,
+				"est_margin_pct":     br.EstMarginPct,
+				"seller_count":       br.SellerCount,
+				"eligible":           br.Eligible,
+				"eligibility_status": eligStatus,
+				"approval_url":       br.ApprovalURL,
 			})
 
-			if br.Eligible && brandName != "Unknown Brand" {
+			if (br.Eligible || eligStatus == "ungatable") && brandName != "Unknown Brand" {
 				openBrandsSet[brandName] = true
 			}
 		}
@@ -252,12 +290,16 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 							brandValue = 1
 						}
 						bn := map[string]any{
-							"id":            fmt.Sprintf("brand-%s", slugify(ba.brand)),
-							"name":          ba.brand,
-							"type":          "brand",
-							"eligible":      ba.eligible,
-							"product_count": ba.productCount,
-							"value":         brandValue,
+							"id":                 fmt.Sprintf("brand-%s", slugify(ba.brand)),
+							"name":               ba.brand,
+							"type":               "brand",
+							"eligible":            ba.eligible,
+							"eligibility_status":  ba.bestStatus,
+							"product_count":       ba.productCount,
+							"eligible_count":      ba.eligibleCount,
+							"ungatable_count":     ba.ungatableCount,
+							"restricted_count":    ba.restrictedCount,
+							"value":               brandValue,
 						}
 						brandChildren = append(brandChildren, bn)
 					}
@@ -267,13 +309,14 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 						subcatValue = 1
 					}
 					subcatNode := map[string]any{
-						"id":             "subcat-" + slugify(sa.name),
-						"name":           sa.name,
-						"type":           "subcategory",
-						"eligible_count": sa.eligibleCount,
-						"total_count":    sa.totalCount,
-						"value":          subcatValue,
-						"children":       brandChildren,
+						"id":               "subcat-" + slugify(sa.name),
+						"name":             sa.name,
+						"type":             "subcategory",
+						"eligible_count":   sa.eligibleCount,
+						"ungatable_count":  sa.ungatableCount,
+						"total_count":      sa.totalCount,
+						"value":            subcatValue,
+						"children":         brandChildren,
 					}
 					subcatChildren = append(subcatChildren, subcatNode)
 				}
@@ -330,10 +373,19 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 		restrictedProducts = fingerprint.TotalRestricted
 	}
 
+	// Count ungatable from products
+	ungatableProducts := 0
+	for _, p := range allProducts {
+		if s, ok := p["eligibility_status"].(string); ok && s == "ungatable" {
+			ungatableProducts++
+		}
+	}
+
 	stats := map[string]any{
 		"categories_scanned":  categoriesScanned,
 		"categories_total":    len(service.DiscoveryCategories),
 		"eligible_products":   eligibleProducts,
+		"ungatable_products":  ungatableProducts,
 		"restricted_products": restrictedProducts,
 		"open_brands":         len(openBrandsSet),
 	}

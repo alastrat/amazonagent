@@ -43,7 +43,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
   });
 
   const downloadCSV = useCallback(() => {
-    const headers = ["ASIN", "Title", "Brand", "Subcategory", "Category", "Price", "Margin %", "Sellers", "Eligible"];
+    const headers = ["ASIN", "Title", "Brand", "Subcategory", "Category", "Price", "Margin %", "Sellers", "Status", "Approval URL"];
     const rows = unique.map((p) => [
       p.asin,
       `"${(p.title || "").replace(/"/g, '""')}"`,
@@ -53,7 +53,8 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
       p.price.toFixed(2),
       p.est_margin_pct.toFixed(1),
       String(p.seller_count),
-      p.eligible ? "Yes" : "No",
+      p.eligibility_status || (p.eligible ? "eligible" : "restricted"),
+      p.approval_url || "",
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -96,7 +97,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
               <th className="px-4 py-2 text-left font-medium">Price</th>
               <th className="px-4 py-2 text-left font-medium">Margin %</th>
               <th className="px-4 py-2 text-left font-medium">Sellers</th>
-              <th className="px-4 py-2 text-left font-medium">Eligible</th>
+              <th className="px-4 py-2 text-left font-medium">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -111,15 +112,40 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
                 <td className="px-4 py-2">{p.est_margin_pct.toFixed(1)}%</td>
                 <td className="px-4 py-2">{p.seller_count}</td>
                 <td className="px-4 py-2">
-                  {p.eligible ? (
-                    <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                      Yes
-                    </span>
-                  ) : (
-                    <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                      No
-                    </span>
-                  )}
+                  {(() => {
+                    const status = p.eligibility_status || (p.eligible ? "eligible" : "restricted");
+                    if (status === "eligible") {
+                      return (
+                        <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                          Eligible
+                        </span>
+                      );
+                    }
+                    if (status === "ungatable") {
+                      return (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            Apply
+                          </span>
+                          {p.approval_url && (
+                            <a
+                              href={p.approval_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              Request
+                            </a>
+                          )}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                        Restricted
+                      </span>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}

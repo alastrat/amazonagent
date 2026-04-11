@@ -346,6 +346,7 @@ export interface AssessmentGraphStats {
   categories_scanned: number;
   categories_total: number;
   eligible_products: number;
+  ungatable_products: number;
   restricted_products: number;
   open_brands: number;
   restricted_brands: number;
@@ -411,14 +412,18 @@ export interface AssessmentOutcome {
 
 // --- Assessment Tree (hierarchical drill-down) ---
 
+export type EligibilityStatus = "eligible" | "ungatable" | "restricted";
+
 export interface TreeNode {
   id: string;
   name: string;
   type?: "root" | "category" | "subcategory" | "brand" | "product";
   open_rate?: number;
   eligible_count?: number;
+  ungatable_count?: number;
   total_count?: number;
   eligible?: boolean;
+  eligibility_status?: EligibilityStatus;
   children?: TreeNode[];
   value?: number;
   asin?: string;
@@ -437,6 +442,8 @@ export interface ProductDetail {
   est_margin_pct: number;
   seller_count: number;
   eligible: boolean;
+  eligibility_status?: EligibilityStatus;
+  approval_url?: string;
 }
 
 // --- End concierge types ---

@@ -383,9 +383,13 @@ func (s *AssessmentService) scanOneCategory(
 
 		eligible := true
 		reason := ""
+		eligStatus := "eligible"
+		approvalURL := ""
 		if len(restrictions) > 0 && !restrictions[0].Allowed {
 			eligible = false
 			reason = restrictions[0].Reason
+			eligStatus = string(restrictions[0].Status) // "ungatable" or "restricted"
+			approvalURL = restrictions[0].ApprovalURL
 		}
 
 		result := domain.AssessmentSearchResult{
@@ -398,7 +402,9 @@ func (s *AssessmentService) scanOneCategory(
 			BSRRank:           p.BSRRank,
 			SellerCount:       p.SellerCount,
 			Eligible:          eligible,
+			EligibilityStatus: eligStatus,
 			RestrictionReason: reason,
+			ApprovalURL:       approvalURL,
 		}
 		results = append(results, result)
 		stat.searched++
@@ -406,6 +412,10 @@ func (s *AssessmentService) scanOneCategory(
 		if eligible {
 			stat.eligible++
 			cs.totalEligible++
+			consecutiveRestricted = 0
+		} else if eligStatus == "ungatable" {
+			// Ungatable products are valuable — don't count toward restricted streak
+			cs.totalEligible++ // count as partially eligible for opportunity detection
 			consecutiveRestricted = 0
 		} else {
 			consecutiveRestricted++
@@ -416,7 +426,7 @@ func (s *AssessmentService) scanOneCategory(
 			te := &domain.TenantEligibility{
 				TenantID:  tenantID,
 				ASIN:      p.ASIN,
-				Eligible:  eligible,
+				Eligible:  eligible || eligStatus == "ungatable",
 				Reason:    reason,
 				CheckedAt: time.Now(),
 			}
@@ -430,10 +440,10 @@ func (s *AssessmentService) scanOneCategory(
 		}
 	}
 
-	// ── Enrich eligible products with GetProductDetails (real price + seller count) ──
+	// ── Enrich eligible + ungatable products with GetProductDetails (real price + seller count) ──
 	var eligibleASINs []string
 	for _, r := range results {
-		if r.Eligible {
+		if r.Eligible || r.EligibilityStatus == "ungatable" {
 			eligibleASINs = append(eligibleASINs, r.ASIN)
 		}
 	}
@@ -556,9 +566,23 @@ func (s *AssessmentService) phase3BuildOutcome(
 	catStats []categoryStat,
 	cs *circuitState,
 ) *domain.AssessmentOutcome {
+	// Count by eligibility status
+	ungatable := 0
+	restricted := 0
+	for _, r := range allResults {
+		switch r.EligibilityStatus {
+		case "ungatable":
+			ungatable++
+		case "restricted":
+			restricted++
+		}
+	}
+
 	outcome := &domain.AssessmentOutcome{
 		TotalSearched:   len(allResults),
 		TotalEligible:   len(eligible),
+		TotalUngatable:  ungatable,
+		TotalRestricted: restricted,
 		TotalQualified:  len(survivors),
 		APICallsUsed:    cs.apiCalls,
 		DurationSeconds: time.Since(cs.startTime).Seconds(),
@@ -771,17 +795,19 @@ func (s *AssessmentService) persistFingerprint(
 			estMargin = domain.EstimateMarginPct(r.AmazonPrice)
 		}
 		brandResults = append(brandResults, domain.BrandProbeResult{
-			ASIN:         r.ASIN,
-			Brand:        r.Brand,
-			Category:     r.Category,
-			Subcategory:  r.Subcategory,
-			Tier:         "discovery",
-			Eligible:     r.Eligible,
-			Reason:       r.RestrictionReason,
-			Title:        r.Title,
-			Price:        r.AmazonPrice,
-			EstMarginPct: estMargin,
-			SellerCount:  r.SellerCount,
+			ASIN:              r.ASIN,
+			Brand:             r.Brand,
+			Category:          r.Category,
+			Subcategory:       r.Subcategory,
+			Tier:              "discovery",
+			Eligible:          r.Eligible,
+			EligibilityStatus: r.EligibilityStatus,
+			Reason:            r.RestrictionReason,
+			ApprovalURL:       r.ApprovalURL,
+			Title:             r.Title,
+			Price:             r.AmazonPrice,
+			EstMarginPct:      estMargin,
+			SellerCount:       r.SellerCount,
 		})
 	}
 
@@ -854,7 +880,7 @@ func (s *AssessmentService) persistFingerprint(
 func filterEligible(results []domain.AssessmentSearchResult) []domain.AssessmentSearchResult {
 	var eligible []domain.AssessmentSearchResult
 	for _, r := range results {
-		if r.Eligible {
+		if r.Eligible || r.EligibilityStatus == "ungatable" {
 			eligible = append(eligible, r)
 		}
 	}

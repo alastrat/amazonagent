@@ -43,11 +43,23 @@ type ScrapedPage struct {
 	Content string `json:"content"`
 }
 
+// EligibilityStatus classifies how a product can be listed.
+type EligibilityStatus string
+
+const (
+	EligibilityEligible   EligibilityStatus = "eligible"   // no restrictions — can list immediately
+	EligibilityUngatable  EligibilityStatus = "ungatable"  // APPROVAL_REQUIRED — seller can apply
+	EligibilityRestricted EligibilityStatus = "restricted" // NOT_ELIGIBLE — no path forward
+)
+
 // ListingRestriction describes why a product can't be listed
 type ListingRestriction struct {
-	ASIN    string `json:"asin"`
-	Allowed bool   `json:"allowed"`
-	Reason  string `json:"reason,omitempty"`
+	ASIN        string            `json:"asin"`
+	Allowed     bool              `json:"allowed"`
+	Reason      string            `json:"reason,omitempty"`
+	ReasonCode  string            `json:"reason_code,omitempty"`  // APPROVAL_REQUIRED or NOT_ELIGIBLE
+	ApprovalURL string            `json:"approval_url,omitempty"` // Seller Central approval link
+	Status      EligibilityStatus `json:"status"`
 }
 
 // ProductSearcher searches Amazon for products
