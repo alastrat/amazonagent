@@ -355,12 +355,9 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 		"children": categoryChildren,
 	}
 
-	// ── Stats with deduplicated category count ────────────────────
+	// ── Stats — computed from deduplicated products to match the frontend table ──
 
 	categoriesScanned := 0
-	eligibleProducts := 0
-	restrictedProducts := 0
-
 	if fingerprint != nil {
 		seen := make(map[string]bool)
 		for _, cat := range fingerprint.Categories {
@@ -371,15 +368,30 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 				categoriesScanned++
 			}
 		}
-		eligibleProducts = fingerprint.TotalEligible
-		restrictedProducts = fingerprint.TotalRestricted
 	}
 
-	// Count ungatable from products
+	// Deduplicate products by ASIN and count by status
+	eligibleProducts := 0
 	ungatableProducts := 0
+	restrictedProducts := 0
+	seenASINs := make(map[string]bool, len(allProducts))
+	var dedupedProducts []map[string]any
 	for _, p := range allProducts {
-		if s, ok := p["eligibility_status"].(string); ok && s == "ungatable" {
+		asin, _ := p["asin"].(string)
+		if asin == "" || seenASINs[asin] {
+			continue
+		}
+		seenASINs[asin] = true
+		dedupedProducts = append(dedupedProducts, p)
+
+		status, _ := p["eligibility_status"].(string)
+		switch status {
+		case "eligible":
+			eligibleProducts++
+		case "ungatable":
 			ungatableProducts++
+		default:
+			restrictedProducts++
 		}
 	}
 
@@ -395,7 +407,7 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]any{
 		"status":   status,
 		"tree":     tree,
-		"products": allProducts,
+		"products": dedupedProducts,
 		"stats":    stats,
 	})
 }
