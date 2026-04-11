@@ -29,6 +29,10 @@ lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 docker stop inngest-local 2>/dev/null && echo "  Stopped Inngest" || true
 docker rm inngest-local 2>/dev/null || true
 
+# Wait for ports to fully release before start.sh runs
+echo "  Waiting for ports to release..."
+sleep 3
+
 echo ""
 echo -e "${GREEN}All app services stopped. Docker/Postgres still running.${NC}"
 echo -e "To stop everything including Docker: ${RED}make down${NC}"
