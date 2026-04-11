@@ -317,8 +317,9 @@ func (s *AssessmentService) scanOneCategory(
 
 	slog.Info("assessment: scanning category", "category", cat.Name, "node", cat.BrowseNodeID)
 
-	// Search for products in this category
-	products, _, err := spapi.SearchByBrowseNode(ctx, cat.BrowseNodeID, "US", "")
+	// Search for products in this category using keyword search
+	// (browse node search requires keywords param — use category name as keyword)
+	products, err := spapi.SearchProducts(ctx, []string{cat.Name}, "US")
 	cs.addAPICalls(1) // 1 catalog search call
 
 	if err != nil {
