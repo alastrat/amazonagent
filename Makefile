@@ -83,6 +83,14 @@ playwright-install:
 web-deploy:
 	cd apps/web && NEXT_PUBLIC_API_URL=https://amazonagent-production.up.railway.app npm run deploy
 
+# Reset and restart assessment (requires API running on 8081)
+assess:
+	@curl -s -X DELETE "http://localhost:8081/assessment/reset" -H "Authorization: Bearer dev-user-dev-tenant"
+	@sleep 1
+	@curl -s -X POST "http://localhost:8081/assessment/start" -H "Authorization: Bearer dev-user-dev-tenant" -H "Content-Type: application/json" -d '{}'
+	@echo ""
+	@echo "Assessment started. Open http://localhost:3001/onboarding"
+
 # Start everything locally for manual testing
 local:
 	@echo "Starting local dev environment..."
