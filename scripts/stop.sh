@@ -2,6 +2,7 @@
 
 # =============================================================================
 # FBA Agent Orchestrator — Stop All Services
+# Does NOT stop Docker/Postgres — use `make down` for that
 # =============================================================================
 
 RED='\033[0;31m'
@@ -24,15 +25,10 @@ if [ -f /tmp/fba-web.pid ]; then
 fi
 lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 
-# Stop Inngest
+# Stop Inngest container (but NOT Postgres)
 docker stop inngest-local 2>/dev/null && echo "  Stopped Inngest" || true
 docker rm inngest-local 2>/dev/null || true
 
-# Stop Docker Compose (Postgres)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
-docker compose down 2>/dev/null && echo "  Stopped Postgres" || true
-
 echo ""
-echo -e "${GREEN}All services stopped.${NC}"
+echo -e "${GREEN}All app services stopped. Docker/Postgres still running.${NC}"
+echo -e "To stop everything including Docker: ${RED}make down${NC}"

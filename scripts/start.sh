@@ -30,7 +30,6 @@ lsof -ti:8081 | xargs kill -9 2>/dev/null || true
 lsof -ti:3001 | xargs kill -9 2>/dev/null || true
 docker stop inngest-local 2>/dev/null || true
 docker rm inngest-local 2>/dev/null || true
-docker compose down 2>/dev/null || true
 sleep 1
 
 # --- 1. Postgres ---
