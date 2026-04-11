@@ -271,6 +271,11 @@ func (s *AssessmentService) phase1SearchCategories(
 			break
 		}
 
+		if ctx.Err() != nil {
+			cs.fireBreaker("context_canceled")
+			break
+		}
+
 		if scanned[idx] {
 			continue
 		}
@@ -382,6 +387,7 @@ func (s *AssessmentService) scanOneCategory(
 		asins[i] = p.ASIN
 	}
 	enriched, err := spapi.LookupByIdentifier(ctx, asins, "ASIN", marketplace)
+	cs.addAPICalls((len(asins) + 19) / 20) // batch of 20
 	if err == nil && len(enriched) > 0 {
 		enrichMap := make(map[string]port.ProductSearchResult)
 		for _, e := range enriched {

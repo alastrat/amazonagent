@@ -919,14 +919,16 @@ func NewDurableRuntime(
 				slog.Info("inngest[run-assessment]: started", "tenant_id", data.TenantID)
 
 				// Step 1: Validate credentials — build per-tenant SP-API client
-				// For now we use the injected productSearcher as the tenant client.
-				// When CredentialService is implemented (Phase A), this step will call
-				// credentialSvc.GetSPAPIClient(ctx, tenantID) instead.
+				// TODO(Phase A): Replace shared productSearcher with per-tenant client
+				// via credentialSvc.GetSPAPIClient(ctx, tenantID). Currently uses the
+				// shared singleton which has the seller's credentials from env vars.
 				tenantSPAPI := productSearcher
 
 				if tenantSPAPI == nil {
 					slog.Error("inngest[run-assessment]: no SP-API client available", "tenant_id", data.TenantID)
-					assessmentSvc.FailAssessment(ctx, tenantID)
+					if err := assessmentSvc.FailAssessment(ctx, tenantID); err != nil {
+						slog.Error("inngest[run-assessment]: FailAssessment also failed", "error", err)
+					}
 					return map[string]string{"status": "failed", "error": "no SP-API client"}, nil
 				}
 
@@ -941,7 +943,9 @@ func NewDurableRuntime(
 				})
 				if err != nil {
 					slog.Error("inngest[run-assessment]: discovery failed", "tenant_id", data.TenantID, "error", err)
-					assessmentSvc.FailAssessment(ctx, tenantID)
+					if fErr := assessmentSvc.FailAssessment(ctx, tenantID); fErr != nil {
+						slog.Error("inngest[run-assessment]: FailAssessment also failed", "error", fErr)
+					}
 					return map[string]string{"status": "failed", "error": err.Error()}, nil
 				}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/spapi"
@@ -97,6 +98,10 @@ func (s *SellerAccountService) ConnectAccount(ctx context.Context, tenantID doma
 func (s *SellerAccountService) GetAccount(ctx context.Context, tenantID domain.TenantID) (*domain.AmazonSellerAccount, error) {
 	account, err := s.repo.Get(ctx, tenantID)
 	if err != nil {
+		// "no rows" means not connected — return nil, nil per contract
+		if strings.Contains(err.Error(), "no rows") {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return account, nil

@@ -98,9 +98,11 @@ function toEChartsNode(node: TreeNode): EChartsTreeNode {
     case "brand":
       color = brandColor(node);
       break;
-    case "product":
-      color = node.eligible ? "#86efac" : "#fca5a5";
+    case "product": {
+      const ps = node.eligibility_status ?? (node.eligible ? "eligible" : "restricted");
+      color = ps === "eligible" ? "#86efac" : ps === "ungatable" ? "#fcd34d" : "#fca5a5";
       break;
+    }
     default:
       color = "#6b7280";
   }
