@@ -19,33 +19,31 @@ function getStatus(p: ProductDetail): EligibilityStatus {
 export function DiscoveryProductTable({ products, selectedNode, showAllByDefault = false }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  // If no node selected and not showing all, prompt user
-  if (!selectedNode && !showAllByDefault) {
-    return (
-      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        Click a category, subcategory, or brand in the tree to see products
-      </div>
-    );
-  }
+  const showPrompt = !selectedNode && !showAllByDefault;
 
   // Filter by selected node (or show all if showAllByDefault)
-  const nodeFiltered = products
-    .filter((p) => {
-      if (!selectedNode) return true; // show all
-      if (selectedNode.type === "category") return p.category === selectedNode.name;
-      if (selectedNode.type === "subcategory") return p.subcategory === selectedNode.name;
-      if (selectedNode.type === "brand") return p.brand === selectedNode.name;
-      return false;
-    })
-    .sort((a, b) => b.est_margin_pct - a.est_margin_pct);
+  const nodeFiltered = useMemo(() => {
+    if (showPrompt) return [];
+    return products
+      .filter((p) => {
+        if (!selectedNode) return true; // show all
+        if (selectedNode.type === "category") return p.category === selectedNode.name;
+        if (selectedNode.type === "subcategory") return p.subcategory === selectedNode.name;
+        if (selectedNode.type === "brand") return p.brand === selectedNode.name;
+        return false;
+      })
+      .sort((a, b) => b.est_margin_pct - a.est_margin_pct);
+  }, [products, selectedNode, showPrompt]);
 
   // Deduplicate by ASIN
-  const seen = new Set<string>();
-  const unique = nodeFiltered.filter((p) => {
-    if (seen.has(p.asin)) return false;
-    seen.add(p.asin);
-    return true;
-  });
+  const unique = useMemo(() => {
+    const seen = new Set<string>();
+    return nodeFiltered.filter((p) => {
+      if (seen.has(p.asin)) return false;
+      seen.add(p.asin);
+      return true;
+    });
+  }, [nodeFiltered]);
 
   // Status filter counts
   const counts = useMemo(() => {
@@ -65,19 +63,26 @@ export function DiscoveryProductTable({ products, selectedNode, showAllByDefault
     ? unique
     : unique.filter((p) => getStatus(p) === statusFilter);
 
+  // CSV cell sanitizer — guards against formula injection (=, +, -, @)
+  const csvCell = (value: unknown) => {
+    const raw = String(value ?? "");
+    const guarded = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+    return `"${guarded.replace(/"/g, '""')}"`;
+  };
+
   const downloadCSV = useCallback(() => {
     const headers = ["ASIN", "Title", "Brand", "Subcategory", "Category", "Price", "Margin %", "Sellers", "Status", "Approval URL"];
     const rows = displayed.map((p) => [
-      p.asin,
-      `"${(p.title || "").replace(/"/g, '""')}"`,
-      `"${(p.brand || "").replace(/"/g, '""')}"`,
-      `"${(p.subcategory || "").replace(/"/g, '""')}"`,
-      `"${(p.category || "").replace(/"/g, '""')}"`,
-      p.price.toFixed(2),
-      p.est_margin_pct.toFixed(1),
-      String(p.seller_count),
-      getStatus(p),
-      p.approval_url || "",
+      csvCell(p.asin),
+      csvCell(p.title),
+      csvCell(p.brand),
+      csvCell(p.subcategory),
+      csvCell(p.category),
+      csvCell(p.price.toFixed(2)),
+      csvCell(p.est_margin_pct.toFixed(1)),
+      csvCell(p.seller_count),
+      csvCell(getStatus(p)),
+      csvCell(p.approval_url || ""),
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -88,6 +93,14 @@ export function DiscoveryProductTable({ products, selectedNode, showAllByDefault
     a.click();
     URL.revokeObjectURL(url);
   }, [displayed, selectedNode]);
+
+  if (showPrompt) {
+    return (
+      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+        Click a category, subcategory, or brand in the tree to see products
+      </div>
+    );
+  }
 
   if (unique.length === 0) {
     return (

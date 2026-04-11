@@ -613,10 +613,13 @@ func (s *AssessmentService) phase3BuildOutcome(
 	cs *circuitState,
 ) *domain.AssessmentOutcome {
 	// Count by eligibility status
+	trulyEligible := 0
 	ungatable := 0
 	restricted := 0
 	for _, r := range allResults {
 		switch r.EligibilityStatus {
+		case "eligible":
+			trulyEligible++
 		case "ungatable":
 			ungatable++
 		case "restricted":
@@ -626,7 +629,7 @@ func (s *AssessmentService) phase3BuildOutcome(
 
 	outcome := &domain.AssessmentOutcome{
 		TotalSearched:   len(allResults),
-		TotalEligible:   len(eligible),
+		TotalEligible:   trulyEligible,
 		TotalUngatable:  ungatable,
 		TotalRestricted: restricted,
 		TotalQualified:  len(survivors),
@@ -876,9 +879,12 @@ func (s *AssessmentService) persistFingerprint(
 	totalEligible := 0
 	totalRestricted := 0
 	for _, r := range allResults {
-		if r.Eligible {
+		switch r.EligibilityStatus {
+		case "eligible":
 			totalEligible++
-		} else {
+		case "ungatable":
+			totalEligible++ // ungatable counts as accessible for open rate
+		default:
 			totalRestricted++
 		}
 	}

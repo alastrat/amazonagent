@@ -89,13 +89,17 @@ func (h *AssessmentHub) EndStream(tenantID domain.TenantID) {
 	ts.subscribers = nil
 	ts.mu.Unlock()
 
-	// Grace period for late SSE reconnects to get catch-up history
+	// Grace period for late SSE reconnects to get catch-up history.
+	// Guard: only delete if the stream is still the same one (a rescan could have started a new one).
+	staleStream := ts
 	go func() {
 		time.Sleep(30 * time.Second)
 		h.mu.Lock()
-		delete(h.streams, tenantID)
+		if h.streams[tenantID] == staleStream {
+			delete(h.streams, tenantID)
+			slog.Debug("assessment-hub: stream cleaned up", "tenant_id", tenantID)
+		}
 		h.mu.Unlock()
-		slog.Debug("assessment-hub: stream cleaned up", "tenant_id", tenantID)
 	}()
 }
 

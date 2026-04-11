@@ -137,19 +137,27 @@ export function DiscoveryGraph({ tree, products: _products, onNodeClick, height 
         formatter: (params: any) => {
           const d = params.data;
           const nd = d?.nodeData;
-          if (!nd) return d?.name ?? "";
+          const safe = (v: unknown) =>
+            String(v ?? "")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;");
+          const name = safe(d?.name);
+          if (!nd) return name;
           const type = nd.type;
-          if (type === "root") return `<strong>${d.name}</strong>`;
-          if (type === "category") return `<strong>${d.name}</strong><br/>Category`;
-          if (type === "subcategory") return `<strong>${d.name}</strong><br/>Subcategory`;
+          if (type === "root") return `<strong>${name}</strong>`;
+          if (type === "category") return `<strong>${name}</strong><br/>Category`;
+          if (type === "subcategory") return `<strong>${name}</strong><br/>Subcategory`;
           if (type === "brand") {
-            const badge = nd.eligible ? "Eligible" : "Restricted";
-            return `<strong>${d.name}</strong><br/>Brand &middot; ${badge}`;
+            const status = nd.eligibility_status ?? "restricted";
+            const badge = status === "eligible" ? "Eligible" : status === "ungatable" ? "Can Apply" : "Restricted";
+            return `<strong>${name}</strong><br/>Brand &middot; ${badge}`;
           }
           if (type === "product") {
-            return `<strong>${d.name}</strong><br/>ASIN: ${nd.asin ?? "N/A"}`;
+            return `<strong>${name}</strong><br/>ASIN: ${safe(nd.asin ?? "N/A")}`;
           }
-          return d.name;
+          return name;
         },
       },
       series: [
