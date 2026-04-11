@@ -336,7 +336,7 @@ func newAssessTestHarness() *assessTestHarness {
 		eligibility: eligibility,
 	}
 
-	svc := NewAssessmentService(profiles, fingerprints, sharedCatalog, nil, idGen)
+	svc := NewAssessmentService(profiles, fingerprints, sharedCatalog, nil, idGen, nil)
 	return &assessTestHarness{
 		svc:          svc,
 		profiles:     profiles,

@@ -135,7 +135,8 @@ func main() {
 	// Assessment service
 	sellerProfileRepo := postgres.NewSellerProfileRepo(pool)
 	eligibilityFPRepo := postgres.NewEligibilityFingerprintRepo(pool)
-	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, sharedCatalogSvc, funnelSvc, idGen)
+	assessmentHub := service.NewAssessmentHub()
+	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, sharedCatalogSvc, funnelSvc, idGen, assessmentHub)
 	strategyVersionRepo := postgres.NewStrategyVersionRepo(pool)
 	strategySvc := service.NewStrategyService(strategyVersionRepo, idGen)
 	suggestionRepo := postgres.NewSuggestionRepo(pool)
@@ -207,7 +208,7 @@ func main() {
 		Scan:           handler.NewScanHandler(durableRuntime),
 		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
 		Credit:         handler.NewCreditHandler(creditSvc),
-		Assessment:     handler.NewAssessmentHandler(assessmentSvc, durableRuntime),
+		Assessment:     handler.NewAssessmentHandler(assessmentSvc, durableRuntime, assessmentHub),
 		Strategy:       handler.NewStrategyHandler(strategySvc),
 		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
 		SellerAccount:  handler.NewSellerAccountHandler(sellerAccountSvc),

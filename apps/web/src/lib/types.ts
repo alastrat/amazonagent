@@ -446,6 +446,39 @@ export interface ProductDetail {
   approval_url?: string;
 }
 
+// --- SSE Event Types ---
+
+export interface SSEProductFound {
+  asin: string;
+  title: string;
+  brand: string;
+  category: string;
+  subcategory: string;
+  eligible: boolean;
+  eligibility_status: EligibilityStatus;
+  approval_url?: string;
+  price: number;
+  seller_count: number;
+}
+
+export interface SSECategoryStart {
+  category: string;
+  category_index: number;
+  category_total: number;
+}
+
+export interface SSECategoryComplete {
+  category: string;
+  searched: number;
+  eligible: number;
+}
+
+export interface SSEEvent {
+  type: string;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
 // --- End concierge types ---
 
 export type DiscoveryCadence = "nightly" | "twice_daily" | "weekly";

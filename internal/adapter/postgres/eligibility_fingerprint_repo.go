@@ -62,14 +62,14 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 
 	// Load brand results
 	brandRows, err := r.pool.Query(ctx, `
-		SELECT asin, brand, category, subcategory, tier, eligible, reason, title, price, est_margin_pct, seller_count
+		SELECT asin, brand, category, subcategory, tier, eligible, reason, title, price, est_margin_pct, seller_count, eligibility_status, approval_url
 		FROM assessment_probe_results WHERE tenant_id = $1
 	`, tenantID)
 	if err == nil {
 		defer brandRows.Close()
 		for brandRows.Next() {
 			var br domain.BrandProbeResult
-			if err := brandRows.Scan(&br.ASIN, &br.Brand, &br.Category, &br.Subcategory, &br.Tier, &br.Eligible, &br.Reason, &br.Title, &br.Price, &br.EstMarginPct, &br.SellerCount); err != nil {
+			if err := brandRows.Scan(&br.ASIN, &br.Brand, &br.Category, &br.Subcategory, &br.Tier, &br.Eligible, &br.Reason, &br.Title, &br.Price, &br.EstMarginPct, &br.SellerCount, &br.EligibilityStatus, &br.ApprovalURL); err != nil {
 				return nil, fmt.Errorf("scan brand probe result: %w", err)
 			}
 			fp.BrandResults = append(fp.BrandResults, br)
@@ -82,10 +82,10 @@ func (r *EligibilityFingerprintRepo) Get(ctx context.Context, tenantID domain.Te
 func (r *EligibilityFingerprintRepo) SaveProbeResults(ctx context.Context, fingerprintID string, tenantID domain.TenantID, results []domain.BrandProbeResult) error {
 	rows := make([][]any, len(results))
 	for i, res := range results {
-		rows[i] = []any{fingerprintID, tenantID, res.ASIN, res.Brand, res.Category, res.Subcategory, res.Tier, res.Eligible, res.Reason, res.Title, res.Price, res.EstMarginPct, res.SellerCount}
+		rows[i] = []any{fingerprintID, tenantID, res.ASIN, res.Brand, res.Category, res.Subcategory, res.Tier, res.Eligible, res.Reason, res.Title, res.Price, res.EstMarginPct, res.SellerCount, res.EligibilityStatus, res.ApprovalURL}
 	}
 	return BatchInsert(ctx, r.pool, "assessment_probe_results",
-		[]string{"fingerprint_id", "tenant_id", "asin", "brand", "category", "subcategory", "tier", "eligible", "reason", "title", "price", "est_margin_pct", "seller_count"}, rows)
+		[]string{"fingerprint_id", "tenant_id", "asin", "brand", "category", "subcategory", "tier", "eligible", "reason", "title", "price", "est_margin_pct", "seller_count", "eligibility_status", "approval_url"}, rows)
 }
 
 func (r *EligibilityFingerprintRepo) SaveCategoryEligibilities(ctx context.Context, fingerprintID string, tenantID domain.TenantID, categories []domain.CategoryEligibility) error {

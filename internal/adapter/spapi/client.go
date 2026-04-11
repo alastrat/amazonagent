@@ -575,24 +575,39 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 			approvalURL := ""
 			status := port.EligibilityRestricted
 
-			if r, ok := restrictions[0].(map[string]any); ok {
-				if reasons, ok := r["reasons"].([]any); ok {
-					for _, rr := range reasons {
-						if rm, ok := rr.(map[string]any); ok {
-							if msg, ok := rm["message"].(string); ok && msg != "" {
-								reason = msg
-							}
-							if rc, ok := rm["reasonCode"].(string); ok {
-								reasonCode = rc
-							}
-							// Check for approval links
-							if links, ok := rm["links"].([]any); ok {
-								for _, l := range links {
-									if lm, ok := l.(map[string]any); ok {
-										if res, ok := lm["resource"].(string); ok && res != "" {
-											approvalURL = res
-										}
-									}
+			// Log raw response for debugging eligibility classification
+			if rawJSON, err := json.Marshal(raw); err == nil {
+				slog.Debug("sp-api: raw restrictions response", "asin", asin, "raw", string(rawJSON))
+			}
+
+			// Check ALL restriction objects (not just the first) — SP-API returns
+			// one per condition type, and our conditionType=new_new might not be first.
+			for _, restriction := range restrictions {
+				r, ok := restriction.(map[string]any)
+				if !ok {
+					continue
+				}
+				reasons, ok := r["reasons"].([]any)
+				if !ok {
+					continue
+				}
+				for _, rr := range reasons {
+					rm, ok := rr.(map[string]any)
+					if !ok {
+						continue
+					}
+					if msg, ok := rm["message"].(string); ok && msg != "" {
+						reason = msg
+					}
+					if rc, ok := rm["reasonCode"].(string); ok && rc != "" {
+						reasonCode = rc
+					}
+					// Check for approval links
+					if links, ok := rm["links"].([]any); ok {
+						for _, l := range links {
+							if lm, ok := l.(map[string]any); ok {
+								if res, ok := lm["resource"].(string); ok && res != "" {
+									approvalURL = res
 								}
 							}
 						}
@@ -600,7 +615,7 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 				}
 			}
 
-			// APPROVAL_REQUIRED with a link = ungatable (seller can apply)
+			// Classify: APPROVAL_REQUIRED or has approval link = ungatable
 			if reasonCode == "APPROVAL_REQUIRED" || approvalURL != "" {
 				status = port.EligibilityUngatable
 			}

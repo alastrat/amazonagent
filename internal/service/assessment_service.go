@@ -107,6 +107,7 @@ type AssessmentService struct {
 	sharedCatalog *SharedCatalogService
 	funnelSvc     *FunnelService
 	idGen         port.IDGenerator
+	hub           *AssessmentHub
 }
 
 func NewAssessmentService(
@@ -115,6 +116,7 @@ func NewAssessmentService(
 	sharedCatalog *SharedCatalogService,
 	funnelSvc *FunnelService,
 	idGen port.IDGenerator,
+	hub *AssessmentHub,
 ) *AssessmentService {
 	return &AssessmentService{
 		profiles:      profiles,
@@ -122,6 +124,7 @@ func NewAssessmentService(
 		sharedCatalog: sharedCatalog,
 		funnelSvc:     funnelSvc,
 		idGen:         idGen,
+		hub:           hub,
 	}
 }
 
@@ -158,10 +161,20 @@ func (s *AssessmentService) RunDiscoveryAssessment(
 
 	cs := newCircuitState()
 
+	// Start SSE stream for this tenant
+	if s.hub != nil {
+		s.hub.StartStream(tenantID)
+		defer s.hub.EndStream(tenantID)
+	}
+
 	slog.Info("assessment: beginning discovery", "tenant_id", tenantID, "categories", len(DiscoveryCategories))
+
+	s.emitEvent(tenantID, EventPhaseChange, map[string]any{"phase": 1, "description": "Searching categories"})
 
 	// ── Phase 1: Broad Category Search ─────────────────────────
 	allResults, categoryStats := s.phase1SearchCategories(ctx, tenantID, spapi, cs)
+
+	s.emitEvent(tenantID, EventPhaseChange, map[string]any{"phase": 2, "description": "Evaluating products"})
 
 	// ── Phase 2: Evaluate eligible products via funnel T1-T3 ───
 	var survivors []FunnelSurvivor
@@ -180,6 +193,8 @@ func (s *AssessmentService) RunDiscoveryAssessment(
 		cs.addAPICalls(funnelAPICalls)
 	}
 
+	s.emitEvent(tenantID, EventPhaseChange, map[string]any{"phase": 3, "description": "Building results"})
+
 	// ── Phase 3: Build outcome ─────────────────────────────────
 	outcome := s.phase3BuildOutcome(tenantID, allResults, eligibleResults, survivors, funnelStats, categoryStats, cs)
 
@@ -187,6 +202,13 @@ func (s *AssessmentService) RunDiscoveryAssessment(
 	if err := s.persistFingerprint(ctx, tenantID, allResults, categoryStats); err != nil {
 		slog.Warn("assessment: failed to persist fingerprint", "error", err)
 	}
+
+	s.emitEvent(tenantID, EventAssessmentComplete, map[string]any{
+		"total_searched":  outcome.TotalSearched,
+		"total_eligible":  outcome.TotalEligible,
+		"total_ungatable": outcome.TotalUngatable,
+		"total_restricted": outcome.TotalRestricted,
+	})
 
 	slog.Info("assessment: discovery complete",
 		"tenant_id", tenantID,
@@ -250,9 +272,19 @@ func (s *AssessmentService) phase1SearchCategories(
 		scanned[idx] = true
 
 		cat := DiscoveryCategories[idx]
+		s.emitEvent(tenantID, EventCategoryStart, map[string]any{
+			"category":       cat.Name,
+			"category_index": len(catStats),
+			"category_total": len(DiscoveryCategories),
+		})
 		catResult := s.scanOneCategory(ctx, tenantID, spapi, cat, cs)
 		allResults = append(allResults, catResult.results...)
 		catStats = append(catStats, catResult.stat)
+		s.emitEvent(tenantID, EventCategoryComplete, map[string]any{
+			"category":   cat.Name,
+			"searched":   catResult.stat.searched,
+			"eligible":   catResult.stat.eligible,
+		})
 
 		// ── Repeated failure detection ──
 		if catResult.stat.eligible == 0 {
@@ -408,6 +440,20 @@ func (s *AssessmentService) scanOneCategory(
 		}
 		results = append(results, result)
 		stat.searched++
+
+		// Emit SSE event for this product
+		s.emitEvent(tenantID, EventProductFound, map[string]any{
+			"asin":               result.ASIN,
+			"title":              result.Title,
+			"brand":              result.Brand,
+			"category":           result.Category,
+			"subcategory":        result.Subcategory,
+			"eligible":           result.Eligible,
+			"eligibility_status": result.EligibilityStatus,
+			"approval_url":       result.ApprovalURL,
+			"price":              result.AmazonPrice,
+			"seller_count":       result.SellerCount,
+		})
 
 		if eligible {
 			stat.eligible++
@@ -876,6 +922,17 @@ func (s *AssessmentService) persistFingerprint(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+func (s *AssessmentService) emitEvent(tenantID domain.TenantID, eventType AssessmentEventType, data map[string]any) {
+	if s.hub == nil {
+		return
+	}
+	s.hub.Publish(tenantID, AssessmentEvent{
+		Type:      eventType,
+		Timestamp: time.Now(),
+		Data:      data,
+	})
+}
 
 func filterEligible(results []domain.AssessmentSearchResult) []domain.AssessmentSearchResult {
 	var eligible []domain.AssessmentSearchResult

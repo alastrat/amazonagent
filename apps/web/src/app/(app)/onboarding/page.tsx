@@ -10,6 +10,7 @@ import {
   useStartAssessment,
   useProfile,
 } from "@/hooks/use-assessment";
+import { useAssessmentSSE } from "@/hooks/use-assessment-sse";
 import {
   useActivateStrategyVersion as useActivateVersion,
   useStrategyVersions,
@@ -24,8 +25,6 @@ import { Input } from "@/components/ui/input";
 import type {
   AssessmentGraph,
   AssessmentOutcome,
-  CategorySummary,
-  ProductRecommendation,
   TreeNode,
   UngatingStep,
 } from "@/lib/types";
@@ -87,12 +86,7 @@ export default function OnboardingPage() {
     }
   }, [sellerAccount, assessment, step]);
 
-  // Auto-advance from discover -> reveal when assessment completes
-  useEffect(() => {
-    if (step === "discover" && graphData?.status === "completed") {
-      changeStep("reveal");
-    }
-  }, [step, graphData?.status]);
+  // NOTE: auto-advance is handled by the SSE useEffect below (after sse hook)
 
   function handleRescan() {
     // Reset assessment and start fresh
@@ -145,9 +139,31 @@ export default function OnboardingPage() {
     });
   }
 
+  // SSE streaming for real-time updates during scanning
+  const isScanning = step === "discover" && assessment?.status === "running";
+  const sse = useAssessmentSSE(isScanning && !graphPaused);
+
   const outcome: AssessmentOutcome | undefined = graphData?.outcome;
   const graph: AssessmentGraph | undefined = graphData?.graph;
-  const rawTree: TreeNode | undefined = graphData?.tree;
+
+  // Use SSE tree/products/stats when streaming, fall back to API data when not
+  const hasSSEData = sse.connected && (sse.products.length > 0 || isScanning);
+  const rawTree: TreeNode | undefined = hasSSEData ? sse.tree : graphData?.tree;
+  const liveProducts = hasSSEData ? sse.products : graphData?.products;
+  const liveStats = hasSSEData ? sse.stats : graphData?.stats;
+
+  // Auto-advance: SSE-driven (primary) or API fallback (page loaded after scan finished)
+  useEffect(() => {
+    if (step !== "discover") return;
+    if (sse.isComplete) {
+      changeStep("reveal");
+      return;
+    }
+    // Fallback: if SSE never connected and API says completed
+    if (!sse.connected && graphData?.status === "completed") {
+      changeStep("reveal");
+    }
+  }, [step, sse.isComplete, sse.connected, graphData?.status]);
 
   // Filter tree to only show eligible + ungatable branches when toggle is on
   function filterEligible(node: TreeNode): TreeNode | null {
@@ -283,21 +299,23 @@ export default function OnboardingPage() {
               <div className="flex items-center gap-3">
                 <StatusPill status={assessment?.status ?? "running"} />
                 <span className="text-sm text-muted-foreground">
-                  Searching categories and checking eligibility...
+                  {sse.currentCategory
+                    ? `Scanning ${sse.currentCategory}...`
+                    : "Searching categories and checking eligibility..."}
                 </span>
               </div>
 
               {/* Progress bar */}
-              {graph?.stats && (
+              {liveStats && (
                 <div className="space-y-1">
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full rounded-full bg-primary transition-all duration-500"
                       style={{
                         width: `${
-                          graph.stats.categories_total > 0
+                          liveStats.categories_total > 0
                             ? Math.round(
-                                (graph.stats.categories_scanned / graph.stats.categories_total) *
+                                (liveStats.categories_scanned / liveStats.categories_total) *
                                   100,
                               )
                             : 0
@@ -306,36 +324,36 @@ export default function OnboardingPage() {
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {graph.stats.categories_scanned}/{graph.stats.categories_total} categories
+                    {liveStats.categories_scanned}/{liveStats.categories_total} categories
                     scanned
                   </p>
                 </div>
               )}
 
               {/* Running stats */}
-              {graph?.stats && (
+              {liveStats && (
                 <div className="flex gap-6 text-sm">
                   <div>
-                    <span className="font-medium text-green-600">{graph.stats.eligible_products}</span>{" "}
+                    <span className="font-medium text-green-600">{liveStats.eligible_products}</span>{" "}
                     <span className="text-muted-foreground">eligible</span>
                   </div>
-                  {graph.stats.ungatable_products > 0 && (
+                  {liveStats.ungatable_products > 0 && (
                     <div>
-                      <span className="font-medium text-amber-600">{graph.stats.ungatable_products}</span>{" "}
+                      <span className="font-medium text-amber-600">{liveStats.ungatable_products}</span>{" "}
                       <span className="text-muted-foreground">can apply</span>
                     </div>
                   )}
                   <div>
-                    <span className="font-medium">{graph.stats.open_brands}</span>{" "}
+                    <span className="font-medium">{liveStats.open_brands}</span>{" "}
                     <span className="text-muted-foreground">open brands</span>
                   </div>
                   <div>
-                    <span className="font-medium text-red-600">{graph.stats.restricted_products}</span>{" "}
+                    <span className="font-medium text-red-600">{liveStats.restricted_products}</span>{" "}
                     <span className="text-muted-foreground">restricted</span>
                   </div>
-                  {graph.stats.qualified_products != null && graph.stats.qualified_products > 0 && (
+                  {liveStats.qualified_products != null && liveStats.qualified_products > 0 && (
                     <div>
-                      <span className="font-medium">{graph.stats.qualified_products}</span>{" "}
+                      <span className="font-medium">{liveStats.qualified_products}</span>{" "}
                       <span className="text-muted-foreground">profitable</span>
                     </div>
                   )}
@@ -381,7 +399,7 @@ export default function OnboardingPage() {
               <CardContent>
                 <DiscoveryGraph
                   tree={tree}
-                  products={graphData?.products}
+                  products={liveProducts}
                   onNodeClick={(node) =>
                     setSelectedNode((prev) =>
                       prev?.id === node.id ? null : node,
@@ -389,10 +407,10 @@ export default function OnboardingPage() {
                   }
                   height={440}
                 />
-                {graphData?.products && graphData.products.length > 0 && (
+                {liveProducts && liveProducts.length > 0 && (
                   <div className="mt-4">
                     <DiscoveryProductTable
-                      products={graphData.products}
+                      products={liveProducts}
                       selectedNode={selectedNode}
                     />
                   </div>
@@ -406,304 +424,142 @@ export default function OnboardingPage() {
       {/* ──────────────── Step 3: Reveal ──────────────── */}
       {step === "reveal" && (
         <div className="space-y-6">
-          {profileLoading ? (
-            <div>Loading results...</div>
-          ) : (
-            <>
-              {/* Outcome A: Opportunities found */}
-              {outcome?.has_opportunities && outcome.opportunity && (
-                <>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>
-                        Great News! You Can Sell in {outcome.eligible_categories} Categories
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        We found {outcome.qualified_count} profitable products across your eligible
-                        categories.
-                      </p>
+          {/* Summary stats */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Assessment Results</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-4 gap-3">
+                <div className="rounded-lg border bg-muted/30 p-4 text-center">
+                  <div className="text-2xl font-bold text-green-500">
+                    {liveStats?.eligible_products ?? 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">Eligible Products</div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-4 text-center">
+                  <div className="text-2xl font-bold text-amber-500">
+                    {liveStats?.ungatable_products ?? 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">Can Apply for Approval</div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-4 text-center">
+                  <div className="text-2xl font-bold text-red-500">
+                    {liveStats?.restricted_products ?? 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">Restricted</div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-4 text-center">
+                  <div className="text-2xl font-bold text-indigo-400">
+                    {liveStats?.categories_scanned ?? 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">Categories Scanned</div>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Across{" "}
+                <span className="font-medium text-foreground">{liveStats?.open_brands ?? 0} brands</span>,
+                you have immediate access to{" "}
+                <span className="font-medium text-green-500">{liveStats?.eligible_products ?? 0} products</span>
+                {(liveStats?.ungatable_products ?? 0) > 0 && (
+                  <> and can request approval for{" "}
+                    <span className="font-medium text-amber-500">{liveStats?.ungatable_products} more</span>
+                  </>
+                )}.
+              </p>
+            </CardContent>
+          </Card>
 
-                      {/* Category table */}
-                      {outcome.opportunity.categories.length > 0 && (
-                        <div className="rounded-lg border">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/50">
-                                <th className="px-4 py-2 text-left font-medium">Category</th>
-                                <th className="px-4 py-2 text-left font-medium">
-                                  Qualified Products
-                                </th>
-                                <th className="px-4 py-2 text-left font-medium">Avg Margin</th>
-                                <th className="px-4 py-2 text-left font-medium">Open Rate</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {outcome.opportunity.categories.map((cat: CategorySummary) => (
-                                <tr key={cat.category} className="border-b last:border-0">
-                                  <td className="px-4 py-2">{cat.category}</td>
-                                  <td className="px-4 py-2">{cat.qualified_count}</td>
-                                  <td className="px-4 py-2">{cat.avg_margin_pct.toFixed(1)}%</td>
-                                  <td className="px-4 py-2">
-                                    {(cat.open_rate * 100).toFixed(0)}%
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Top Opportunities */}
-                  {outcome.opportunity.products.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Top Opportunities</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="rounded-lg border">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/50">
-                                <th className="px-4 py-2 text-left font-medium">ASIN</th>
-                                <th className="px-4 py-2 text-left font-medium">Title</th>
-                                <th className="px-4 py-2 text-left font-medium">Brand</th>
-                                <th className="px-4 py-2 text-left font-medium">Category</th>
-                                <th className="px-4 py-2 text-left font-medium">Price</th>
-                                <th className="px-4 py-2 text-left font-medium">Est. Margin</th>
-                                <th className="px-4 py-2 text-left font-medium">Sellers</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {[...outcome.opportunity.products]
-                                .sort((a, b) => b.est_margin_pct - a.est_margin_pct)
-                                .slice(0, 20)
-                                .map((p: ProductRecommendation) => (
-                                  <tr key={p.asin} className="border-b last:border-0 hover:bg-muted/30">
-                                    <td className="px-4 py-2 font-mono text-xs">{p.asin}</td>
-                                    <td className="px-4 py-2 max-w-[200px] truncate">{p.title}</td>
-                                    <td className="px-4 py-2 text-muted-foreground">{p.brand}</td>
-                                    <td className="px-4 py-2 text-muted-foreground">{p.category}</td>
-                                    <td className="px-4 py-2">${p.buy_box_price.toFixed(2)}</td>
-                                    <td className="px-4 py-2">{p.est_margin_pct.toFixed(1)}%</td>
-                                    <td className="px-4 py-2">{p.seller_count}</td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Strategy goals */}
-                  {outcome.opportunity.strategy.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Your Strategy</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {outcome.opportunity.strategy.map((goal, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between rounded-lg border p-3"
-                          >
-                            <div>
-                              <p className="text-sm font-medium">{goal.type}</p>
-                              <p className="text-xs text-muted-foreground">
-                                Target: ${goal.target_amount?.toLocaleString()} by{" "}
-                                {new Date(goal.timeframe_end).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
-                </>
-              )}
-
-              {/* Outcome B: Restricted — ungating roadmap */}
-              {outcome && !outcome.has_opportunities && outcome.ungating && (
-                <>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Your Account Needs Ungating</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-muted-foreground">
-                        We searched products across 20 categories. Your account is currently
-                        restricted from selling profitably in those categories. This is normal for
-                        new accounts — here is your path forward.
-                      </p>
-
-                      {outcome.ungating.estimated_timeline && (
-                        <p className="text-sm font-medium">
-                          Estimated timeline: {outcome.ungating.estimated_timeline}
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Ungating Roadmap</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {outcome.ungating.recommended_path.map((step: UngatingStep) => (
-                        <div key={step.order} className="rounded-lg border p-4 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                              {step.order}
-                            </span>
-                            <span className="font-medium text-sm">
-                              Get Ungated in {step.category}
-                            </span>
-                            <span
-                              className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium ${
-                                step.difficulty === "easy"
-                                  ? "bg-green-100 text-green-700"
-                                  : step.difficulty === "medium"
-                                    ? "bg-yellow-100 text-yellow-700"
-                                    : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {step.difficulty}
-                            </span>
-                          </div>
-                          <p className="text-sm text-muted-foreground pl-8">{step.action}</p>
-                          <div className="flex gap-4 pl-8 text-xs text-muted-foreground">
-                            <span>~{step.est_days} days</span>
-                            <span>{step.impact}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-
-              {/* Fallback: use existing profile data if outcome is not available */}
-              {!outcome && profileData && (
-                <>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Your Seller Profile</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-3">
-                        <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
-                          {profileData.profile?.archetype ?? "Unknown"}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          {assessment?.archetype ?? "Archetype determined by assessment"}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Category Eligibility</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {profileData.fingerprint?.categories &&
-                      profileData.fingerprint.categories.length > 0 ? (
-                        <div className="rounded-lg border">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/50">
-                                <th className="px-4 py-2 text-left font-medium">Category</th>
-                                <th className="px-4 py-2 text-left font-medium">Status</th>
-                                <th className="px-4 py-2 text-left font-medium">Open Rate</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {profileData.fingerprint.categories.map((cat: any) => (
-                                <tr key={cat.name} className="border-b last:border-0">
-                                  <td className="px-4 py-2">{cat.name}</td>
-                                  <td className="px-4 py-2">
-                                    <StatusPill status={cat.eligible ? "approved" : "rejected"} />
-                                  </td>
-                                  <td className="px-4 py-2 text-muted-foreground">
-                                    {(cat.open_rate * 100).toFixed(1)}%
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No category data available.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {draftVersion?.goals && draftVersion.goals.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Recommended Strategy</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {draftVersion.goals.map((goal: any, i: number) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between rounded-lg border p-3"
-                          >
-                            <div>
-                              <p className="text-sm font-medium">{goal.type}</p>
-                              <p className="text-xs text-muted-foreground">
-                                Target: ${goal.target_amount?.toLocaleString()} in {goal.timeframe}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
-                </>
-              )}
-
-              {/* Hierarchical tree visualization */}
-              {tree && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      Eligibility Map{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        (click categories to expand/collapse)
+          {/* Ungating roadmap (only if no opportunities) */}
+          {outcome && !outcome.has_opportunities && outcome.ungating && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Ungating Roadmap</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Your account is currently restricted in most categories. Here is your path forward.
+                </p>
+                {outcome.ungating.recommended_path.map((s: UngatingStep) => (
+                  <div key={s.order} className="rounded-lg border p-4 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                        {s.order}
                       </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DiscoveryGraph
-                      tree={tree}
-                      products={graphData?.products}
-                      onNodeClick={(node) =>
-                        setSelectedNode((prev) =>
-                          prev?.id === node.id ? null : node,
-                        )
-                      }
-                      height={500}
-                    />
-                    {graphData?.products && graphData.products.length > 0 && (
-                      <div className="mt-4">
-                        <DiscoveryProductTable
-                          products={graphData.products}
-                          selectedNode={selectedNode}
-                        />
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              <Button onClick={() => changeStep("commit")}>Continue to Approval</Button>
-            </>
+                      <span className="font-medium text-sm">Get Ungated in {s.category}</span>
+                      <span
+                        className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium ${
+                          s.difficulty === "easy"
+                            ? "bg-green-100 text-green-700"
+                            : s.difficulty === "medium"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {s.difficulty}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground pl-8">{s.action}</p>
+                    <div className="flex gap-4 pl-8 text-xs text-muted-foreground">
+                      <span>~{s.est_days} days</span>
+                      <span>{s.impact}</span>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
           )}
+
+          {/* Graph + filterable product table */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Your Opportunity Map</CardTitle>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={eligibleOnly}
+                    onChange={(e) => setEligibleOnly(e.target.checked)}
+                    className="rounded"
+                  />
+                  Eligible only
+                </label>
+                <Button variant="outline" size="sm" onClick={handleRescan}>
+                  Rescan
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {tree && (
+                <DiscoveryGraph
+                  tree={tree}
+                  products={liveProducts}
+                  onNodeClick={(node) =>
+                    setSelectedNode((prev) =>
+                      prev?.id === node.id ? null : node,
+                    )
+                  }
+                  height={440}
+                />
+              )}
+            </CardContent>
+            {liveProducts && liveProducts.length > 0 && (
+              <>
+                <div className="border-t" />
+                <CardContent className="pt-4">
+                  <DiscoveryProductTable
+                    products={liveProducts}
+                    selectedNode={selectedNode}
+                    showAllByDefault
+                  />
+                </CardContent>
+              </>
+            )}
+          </Card>
+
+          <div className="flex justify-end">
+            <Button onClick={() => changeStep("commit")}>Continue to Approval &rarr;</Button>
+          </div>
         </div>
       )}
 

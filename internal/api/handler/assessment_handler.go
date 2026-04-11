@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,10 +16,11 @@ import (
 type AssessmentHandler struct {
 	assessment     *service.AssessmentService
 	durableRuntime *inngest.DurableRuntime
+	hub            *service.AssessmentHub
 }
 
-func NewAssessmentHandler(assessment *service.AssessmentService, durableRuntime *inngest.DurableRuntime) *AssessmentHandler {
-	return &AssessmentHandler{assessment: assessment, durableRuntime: durableRuntime}
+func NewAssessmentHandler(assessment *service.AssessmentService, durableRuntime *inngest.DurableRuntime, hub *service.AssessmentHub) *AssessmentHandler {
+	return &AssessmentHandler{assessment: assessment, durableRuntime: durableRuntime, hub: hub}
 }
 
 func (h *AssessmentHandler) Start(w http.ResponseWriter, r *http.Request) {
@@ -407,4 +409,48 @@ func (h *AssessmentHandler) Reset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusOK, map[string]string{"status": "reset"})
+}
+
+// StreamEvents serves an SSE stream of real-time assessment progress.
+func (h *AssessmentHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
+	ac := middleware.GetAuthContext(r.Context())
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		response.Error(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, history, unsub := h.hub.Subscribe(ac.TenantID)
+	defer unsub()
+
+	// Send catch-up history
+	if len(history) > 0 {
+		data, _ := json.Marshal(history)
+		fmt.Fprintf(w, "event: catchup\ndata: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	// Stream live events
+	for {
+		select {
+		case evt, ok := <-ch:
+			if !ok {
+				// Channel closed — assessment done
+				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+				flusher.Flush()
+				return
+			}
+			data, _ := json.Marshal(evt)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, data)
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }

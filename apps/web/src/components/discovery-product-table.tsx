@@ -1,16 +1,26 @@
 "use client";
 
-import { useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import type { ProductDetail } from "@/lib/types";
+import type { ProductDetail, EligibilityStatus } from "@/lib/types";
+
+type StatusFilter = EligibilityStatus | "all";
 
 interface Props {
   products: ProductDetail[];
   selectedNode: { id: string; name: string; type: string } | null;
+  showAllByDefault?: boolean; // true on reveal step — show all products without requiring node click
 }
 
-export function DiscoveryProductTable({ products, selectedNode }: Props) {
-  if (!selectedNode) {
+function getStatus(p: ProductDetail): EligibilityStatus {
+  return p.eligibility_status || (p.eligible ? "eligible" : "restricted");
+}
+
+export function DiscoveryProductTable({ products, selectedNode, showAllByDefault = false }: Props) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  // If no node selected and not showing all, prompt user
+  if (!selectedNode && !showAllByDefault) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
         Click a category, subcategory, or brand in the tree to see products
@@ -18,33 +28,46 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
     );
   }
 
-  // Filter by selected node
-  const filtered = products
+  // Filter by selected node (or show all if showAllByDefault)
+  const nodeFiltered = products
     .filter((p) => {
-      if (selectedNode.type === "category") {
-        return p.category === selectedNode.name;
-      }
-      if (selectedNode.type === "subcategory") {
-        return p.subcategory === selectedNode.name;
-      }
-      if (selectedNode.type === "brand") {
-        return p.brand === selectedNode.name;
-      }
+      if (!selectedNode) return true; // show all
+      if (selectedNode.type === "category") return p.category === selectedNode.name;
+      if (selectedNode.type === "subcategory") return p.subcategory === selectedNode.name;
+      if (selectedNode.type === "brand") return p.brand === selectedNode.name;
       return false;
     })
     .sort((a, b) => b.est_margin_pct - a.est_margin_pct);
 
   // Deduplicate by ASIN
   const seen = new Set<string>();
-  const unique = filtered.filter((p) => {
+  const unique = nodeFiltered.filter((p) => {
     if (seen.has(p.asin)) return false;
     seen.add(p.asin);
     return true;
   });
 
+  // Status filter counts
+  const counts = useMemo(() => {
+    const c = { all: 0, eligible: 0, ungatable: 0, restricted: 0 };
+    for (const p of unique) {
+      c.all++;
+      const s = getStatus(p);
+      if (s === "eligible") c.eligible++;
+      else if (s === "ungatable") c.ungatable++;
+      else c.restricted++;
+    }
+    return c;
+  }, [unique]);
+
+  // Apply status filter
+  const displayed = statusFilter === "all"
+    ? unique
+    : unique.filter((p) => getStatus(p) === statusFilter);
+
   const downloadCSV = useCallback(() => {
     const headers = ["ASIN", "Title", "Brand", "Subcategory", "Category", "Price", "Margin %", "Sellers", "Status", "Approval URL"];
-    const rows = unique.map((p) => [
+    const rows = displayed.map((p) => [
       p.asin,
       `"${(p.title || "").replace(/"/g, '""')}"`,
       `"${(p.brand || "").replace(/"/g, '""')}"`,
@@ -53,7 +76,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
       p.price.toFixed(2),
       p.est_margin_pct.toFixed(1),
       String(p.seller_count),
-      p.eligibility_status || (p.eligible ? "eligible" : "restricted"),
+      getStatus(p),
       p.approval_url || "",
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -61,30 +84,62 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `products-${selectedNode.name.replace(/\s+/g, "-").toLowerCase()}.csv`;
+    a.download = `products-${selectedNode ? selectedNode.name.replace(/\s+/g, "-").toLowerCase() : "all"}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [unique, selectedNode]);
+  }, [displayed, selectedNode]);
 
   if (unique.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        No products found for {selectedNode.type} &ldquo;{selectedNode.name}&rdquo;
+        {selectedNode
+          ? <>No products found for {selectedNode.type} &ldquo;{selectedNode.name}&rdquo;</>
+          : "No products found"}
       </div>
     );
   }
 
+  const filterTabs: { key: StatusFilter; label: string; count: number; color?: string }[] = [
+    { key: "all", label: "All", count: counts.all },
+    { key: "eligible", label: "Eligible", count: counts.eligible, color: "text-green-500" },
+    { key: "ungatable", label: "Can Apply", count: counts.ungatable, color: "text-amber-500" },
+    { key: "restricted", label: "Restricted", count: counts.restricted, color: "text-red-500" },
+  ];
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Showing {unique.length} product{unique.length !== 1 ? "s" : ""} for{" "}
-          <span className="font-medium text-foreground">{selectedNode.name}</span>
+          Showing {displayed.length} product{displayed.length !== 1 ? "s" : ""}
+          {selectedNode && (
+            <> for <span className="font-medium text-foreground">{selectedNode.name}</span></>
+          )}
         </p>
         <Button variant="outline" size="sm" onClick={downloadCSV}>
           Download CSV
         </Button>
       </div>
+
+      {/* Status filter tabs */}
+      <div className="inline-flex rounded-lg bg-muted/50 p-1 gap-0.5">
+        {filterTabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setStatusFilter(tab.key)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              statusFilter === tab.key
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className={statusFilter !== tab.key ? tab.color : undefined}>
+              {tab.label}
+            </span>
+            <span className="ml-1 opacity-60">{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="rounded-lg border overflow-auto max-h-[400px]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-muted/90 backdrop-blur-sm">
@@ -101,7 +156,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
             </tr>
           </thead>
           <tbody>
-            {unique.map((p) => (
+            {displayed.map((p) => (
               <tr key={p.asin} className="border-b last:border-0 hover:bg-muted/30">
                 <td className="px-4 py-2 font-mono text-xs">{p.asin}</td>
                 <td className="px-4 py-2 max-w-[200px] truncate">{p.title}</td>
@@ -113,10 +168,10 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
                 <td className="px-4 py-2">{p.seller_count}</td>
                 <td className="px-4 py-2">
                   {(() => {
-                    const status = p.eligibility_status || (p.eligible ? "eligible" : "restricted");
+                    const status = getStatus(p);
                     if (status === "eligible") {
                       return (
-                        <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                        <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-400">
                           Eligible
                         </span>
                       );
@@ -124,7 +179,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
                     if (status === "ungatable") {
                       return (
                         <span className="inline-flex items-center gap-1">
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
                             Apply
                           </span>
                           {p.approval_url && (
@@ -132,7 +187,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
                               href={p.approval_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs text-blue-600 hover:underline"
+                              className="text-xs text-blue-600 hover:underline dark:text-blue-400"
                             >
                               Request
                             </a>
@@ -141,7 +196,7 @@ export function DiscoveryProductTable({ products, selectedNode }: Props) {
                       );
                     }
                     return (
-                      <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
                         Restricted
                       </span>
                     );
