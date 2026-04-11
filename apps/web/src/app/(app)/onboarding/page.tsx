@@ -61,6 +61,7 @@ export default function OnboardingPage() {
   const { data: sellerAccount } = useSellerAccount();
   const startAssessment = useStartAssessment();
   const [graphPaused, setGraphPaused] = useState(false);
+  const [eligibleOnly, setEligibleOnly] = useState(false);
   const { data: assessment } = useAssessmentStatus(step === "discover");
   const { data: graphData } = useAssessmentGraph(step === "discover" && !graphPaused);
   const { data: profileData, isLoading: profileLoading } = useProfile(
@@ -92,6 +93,21 @@ export default function OnboardingPage() {
       changeStep("reveal");
     }
   }, [step, graphData?.status]);
+
+  function handleRescan() {
+    // Reset assessment and start fresh
+    fetch(
+      `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081"}/assessment/reset`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${document.cookie.includes("token") ? "" : "dev-user-dev-tenant"}` },
+      },
+    ).then(() => {
+      startAssessment.mutate(undefined, {
+        onSuccess: () => changeStep("discover"),
+      });
+    });
+  }
 
   function handleConnect() {
     setConnectError(null);
@@ -131,7 +147,24 @@ export default function OnboardingPage() {
 
   const outcome: AssessmentOutcome | undefined = graphData?.outcome;
   const graph: AssessmentGraph | undefined = graphData?.graph;
-  const tree: TreeNode | undefined = graphData?.tree;
+  const rawTree: TreeNode | undefined = graphData?.tree;
+
+  // Filter tree to only show eligible branches when toggle is on
+  function filterEligible(node: TreeNode): TreeNode | null {
+    if (node.type === "brand") {
+      return node.eligible ? node : null;
+    }
+    if (node.children) {
+      const filteredChildren = node.children
+        .map(filterEligible)
+        .filter((c): c is TreeNode => c !== null);
+      if (filteredChildren.length === 0 && node.type !== "root") return null;
+      return { ...node, children: filteredChildren };
+    }
+    return node;
+  }
+
+  const tree = eligibleOnly && rawTree ? filterEligible(rawTree) ?? rawTree : rawTree;
 
   return (
     <div className="space-y-6">
@@ -309,15 +342,34 @@ export default function OnboardingPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-base">Discovery Graph</CardTitle>
-                {step === "discover" && (
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eligibleOnly}
+                      onChange={(e) => setEligibleOnly(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    Eligible only
+                  </label>
+                  {step === "discover" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGraphPaused((p) => !p)}
+                    >
+                      {graphPaused ? "Resume" : "Pause"}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setGraphPaused((p) => !p)}
+                    onClick={handleRescan}
+                    disabled={assessment?.status === "running"}
                   >
-                    {graphPaused ? "Resume" : "Pause"}
+                    Rescan
                   </Button>
-                )}
+                </div>
               </CardHeader>
               <CardContent>
                 <DiscoveryGraph
