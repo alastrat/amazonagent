@@ -36,13 +36,19 @@ sleep 1
 echo -e "${GREEN}[1/4] Starting Postgres on port 5433...${NC}"
 PG_PORT=5433 docker compose up -d postgres
 echo "     Waiting for Postgres to be healthy..."
+PG_READY=false
 for i in $(seq 1 30); do
   if docker compose ps postgres | grep -q "healthy"; then
     echo -e "     ${GREEN}Postgres ready.${NC}"
+    PG_READY=true
     break
   fi
   sleep 1
 done
+if [ "$PG_READY" = false ]; then
+  echo -e "     ${RED}Postgres failed to become healthy after 30s.${NC}"
+  exit 1
+fi
 
 # --- 2. Inngest (pointing to host API) ---
 echo -e "${GREEN}[2/4] Starting Inngest on port 8290...${NC}"

@@ -418,7 +418,7 @@ func TestStartAssessment_RepoCreateError(t *testing.T) {
 func TestRunDiscoveryAssessment_NilSPAPIReturnsError(t *testing.T) {
 	h := newAssessTestHarness()
 
-	_, err := h.svc.RunDiscoveryAssessment(context.Background(), assessTestTenant, nil)
+	_, err := h.svc.RunDiscoveryAssessment(context.Background(), assessTestTenant, nil, "")
 	if err == nil {
 		t.Fatal("expected error for nil SP-API client, got nil")
 	}
@@ -435,7 +435,7 @@ func TestRunDiscoveryAssessment_FindsOpportunities(t *testing.T) {
 		h.spapi.keywordProducts[cat.Name] = products
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestRunDiscoveryAssessment_UngatingWhenNothingFound(t *testing.T) {
 		}
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -510,7 +510,7 @@ func TestRunDiscoveryAssessment_EmptyCategoriesReturnUngating(t *testing.T) {
 	ctx := context.Background()
 
 	// No products in any category (empty browse node responses)
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestCircuitBreaker_PerCategorySkip(t *testing.T) {
 		}
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestCircuitBreaker_EarlySuccess(t *testing.T) {
 		// All products are eligible (default)
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -661,7 +661,7 @@ func TestCircuitBreaker_RepeatedFailure(t *testing.T) {
 		// Rest default to eligible
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestCircuitBreaker_ZeroResults(t *testing.T) {
 		}
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -742,7 +742,7 @@ func TestOpportunityResult_TopRecommendationsCapped(t *testing.T) {
 		h.spapi.keywordProducts[cat.Name] = products
 	}
 
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -762,7 +762,7 @@ func TestUngatingResult_HasRoadmapSteps(t *testing.T) {
 	ctx := context.Background()
 
 	// No products anywhere
-	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -917,7 +917,7 @@ func TestRunDiscoveryAssessment_StoresEligibilityInSharedCatalog(t *testing.T) {
 	}
 	h.spapi.keywordProducts[cat.Name] = products
 
-	_, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
+	_, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

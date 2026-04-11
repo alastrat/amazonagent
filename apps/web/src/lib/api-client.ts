@@ -21,7 +21,7 @@ import type {
   CreditTransaction,
   AmazonSellerAccount,
   ConnectSellerAccountRequest,
-  AssessmentGraph,
+  AssessmentGraphStats,
   AssessmentOutcome,
   TreeNode,
   ProductDetail,
@@ -225,7 +225,7 @@ class ApiClient {
   }
 
   getAssessmentGraph() {
-    return this.fetch<{ tree: TreeNode; graph?: AssessmentGraph; status: string; outcome?: AssessmentOutcome; stats?: Record<string, number>; products?: ProductDetail[] }>("/assessment/graph");
+    return this.fetch<{ tree: TreeNode; status: string; outcome?: AssessmentOutcome; stats?: AssessmentGraphStats; products?: ProductDetail[] }>("/assessment/graph");
   }
 
   // --- Strategy ---

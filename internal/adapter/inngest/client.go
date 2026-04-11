@@ -932,7 +932,7 @@ func NewDurableRuntime(
 
 				// Step 2: Run discovery assessment (search + eligibility + evaluate + build outcome)
 				outcomeJSON, err := step.Run(ctx, "search-categories", func(ctx context.Context) (string, error) {
-					outcome, err := assessmentSvc.RunDiscoveryAssessment(ctx, tenantID, tenantSPAPI)
+					outcome, err := assessmentSvc.RunDiscoveryAssessment(ctx, tenantID, tenantSPAPI, "" /* marketplace — defaults to US */)
 					if err != nil {
 						return "", err
 					}

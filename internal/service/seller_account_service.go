@@ -76,11 +76,17 @@ func (s *SellerAccountService) ConnectAccount(ctx context.Context, tenantID doma
 		UpdatedAt:         now,
 	}
 
-	// Try to delete existing account first (upsert behavior)
-	_ = s.repo.Delete(ctx, tenantID)
-
-	if err := s.repo.Create(ctx, account); err != nil {
-		return nil, fmt.Errorf("store seller account: %w", err)
+	// Upsert: update existing or create new
+	if existing, _ := s.repo.Get(ctx, tenantID); existing != nil {
+		account.ID = existing.ID
+		account.CreatedAt = existing.CreatedAt
+		if err := s.repo.Update(ctx, account); err != nil {
+			return nil, fmt.Errorf("update seller account: %w", err)
+		}
+	} else {
+		if err := s.repo.Create(ctx, account); err != nil {
+			return nil, fmt.Errorf("store seller account: %w", err)
+		}
 	}
 
 	slog.Info("seller-account: connected", "tenant_id", tenantID, "seller_id", input.SellerID, "status", status)

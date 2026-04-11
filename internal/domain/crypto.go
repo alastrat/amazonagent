@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 )
 
 // AESEncryptor provides AES-256-GCM encryption for credential storage.
@@ -22,6 +23,10 @@ type AESEncryptor struct {
 // If keyHex is empty, returns a passthrough encryptor that stores plaintext (dev mode).
 func NewAESEncryptor(keyHex string) (*AESEncryptor, error) {
 	if keyHex == "" {
+		env := os.Getenv("ENVIRONMENT")
+		if env == "production" || env == "prod" {
+			return nil, fmt.Errorf("ENCRYPTION_KEY must be set in production")
+		}
 		slog.Warn("crypto: ENCRYPTION_KEY not set — credentials will be stored in PLAINTEXT (dev mode only)")
 		return &AESEncryptor{devMode: true}, nil
 	}

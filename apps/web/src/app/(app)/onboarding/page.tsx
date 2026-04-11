@@ -23,7 +23,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type {
-  AssessmentGraph,
   AssessmentOutcome,
   TreeNode,
   UngatingStep,
@@ -144,7 +143,6 @@ export default function OnboardingPage() {
   const sse = useAssessmentSSE(isScanning && !graphPaused);
 
   const outcome: AssessmentOutcome | undefined = graphData?.outcome;
-  const graph: AssessmentGraph | undefined = graphData?.graph;
 
   // Use SSE tree/products/stats when streaming, fall back to API data when not
   const hasSSEData = sse.connected && (sse.products.length > 0 || isScanning);

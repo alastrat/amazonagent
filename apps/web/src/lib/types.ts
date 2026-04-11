@@ -321,27 +321,6 @@ export interface ConnectSellerAccountRequest {
 
 // --- Assessment Graph ---
 
-export type AssessmentGraphNodeType = "root" | "category" | "brand" | "product";
-export type AssessmentGraphNodeStatus = "not_scanned" | "scanning" | "scanned" | "skipped";
-
-export interface AssessmentGraphNode {
-  id: string;
-  type: AssessmentGraphNodeType;
-  label: string;
-  status: AssessmentGraphNodeStatus;
-  eligible?: boolean;
-  open_rate?: number;
-  price?: number;
-  margin?: number;
-  category?: string;
-  brand?: string;
-}
-
-export interface AssessmentGraphEdge {
-  source: string;
-  target: string;
-}
-
 export interface AssessmentGraphStats {
   categories_scanned: number;
   categories_total: number;
@@ -351,12 +330,6 @@ export interface AssessmentGraphStats {
   open_brands: number;
   restricted_brands: number;
   qualified_products?: number;
-}
-
-export interface AssessmentGraph {
-  nodes: AssessmentGraphNode[];
-  edges: AssessmentGraphEdge[];
-  stats: AssessmentGraphStats;
 }
 
 // --- Assessment Outcome ---

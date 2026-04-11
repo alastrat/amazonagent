@@ -154,7 +154,11 @@ func (s *AssessmentService) RunDiscoveryAssessment(
 	ctx context.Context,
 	tenantID domain.TenantID,
 	spapi port.ProductSearcher,
+	marketplace string,
 ) (*domain.AssessmentOutcome, error) {
+	if marketplace == "" {
+		marketplace = "US"
+	}
 	if spapi == nil {
 		return nil, fmt.Errorf("assessment requires a per-tenant SP-API client")
 	}
@@ -172,7 +176,7 @@ func (s *AssessmentService) RunDiscoveryAssessment(
 	s.emitEvent(tenantID, EventPhaseChange, map[string]any{"phase": 1, "description": "Searching categories"})
 
 	// ── Phase 1: Broad Category Search ─────────────────────────
-	allResults, categoryStats := s.phase1SearchCategories(ctx, tenantID, spapi, cs)
+	allResults, categoryStats := s.phase1SearchCategories(ctx, tenantID, spapi, cs, marketplace)
 
 	s.emitEvent(tenantID, EventPhaseChange, map[string]any{"phase": 2, "description": "Evaluating products"})
 
@@ -239,6 +243,7 @@ func (s *AssessmentService) phase1SearchCategories(
 	tenantID domain.TenantID,
 	spapi port.ProductSearcher,
 	cs *circuitState,
+	marketplace string,
 ) ([]domain.AssessmentSearchResult, []categoryStat) {
 	var allResults []domain.AssessmentSearchResult
 	var catStats []categoryStat
@@ -277,7 +282,7 @@ func (s *AssessmentService) phase1SearchCategories(
 			"category_index": len(catStats),
 			"category_total": len(DiscoveryCategories),
 		})
-		catResult := s.scanOneCategory(ctx, tenantID, spapi, cat, cs)
+		catResult := s.scanOneCategory(ctx, tenantID, spapi, cat, cs, marketplace)
 		allResults = append(allResults, catResult.results...)
 		catStats = append(catStats, catResult.stat)
 		s.emitEvent(tenantID, EventCategoryComplete, map[string]any{
@@ -309,7 +314,7 @@ func (s *AssessmentService) phase1SearchCategories(
 					}
 					scanned[jumpIdx] = true
 					jumpCat := DiscoveryCategories[jumpIdx]
-					jumpResult := s.scanOneCategory(ctx, tenantID, spapi, jumpCat, cs)
+					jumpResult := s.scanOneCategory(ctx, tenantID, spapi, jumpCat, cs, marketplace)
 					allResults = append(allResults, jumpResult.results...)
 					catStats = append(catStats, jumpResult.stat)
 					if jumpResult.stat.eligible > 0 {
@@ -340,6 +345,7 @@ func (s *AssessmentService) scanOneCategory(
 	spapi port.ProductSearcher,
 	cat AssessmentCategory,
 	cs *circuitState,
+	marketplace string,
 ) categorySearchResult {
 	stat := categoryStat{
 		category:     cat.Name,
@@ -351,7 +357,7 @@ func (s *AssessmentService) scanOneCategory(
 
 	// Search for products in this category using keyword search
 	// (browse node search requires keywords param — use category name as keyword)
-	products, err := spapi.SearchProducts(ctx, []string{cat.Name}, "US")
+	products, err := spapi.SearchProducts(ctx, []string{cat.Name}, marketplace)
 	cs.addAPICalls(1) // 1 catalog search call
 
 	if err != nil {
@@ -375,7 +381,7 @@ func (s *AssessmentService) scanOneCategory(
 	for i, p := range products {
 		asins[i] = p.ASIN
 	}
-	enriched, err := spapi.LookupByIdentifier(ctx, asins, "ASIN", "US")
+	enriched, err := spapi.LookupByIdentifier(ctx, asins, "ASIN", marketplace)
 	if err == nil && len(enriched) > 0 {
 		enrichMap := make(map[string]port.ProductSearchResult)
 		for _, e := range enriched {
@@ -405,7 +411,7 @@ func (s *AssessmentService) scanOneCategory(
 		}
 
 		// Check eligibility
-		restrictions, err := spapi.CheckListingEligibility(ctx, []string{p.ASIN}, "US")
+		restrictions, err := spapi.CheckListingEligibility(ctx, []string{p.ASIN}, marketplace)
 		cs.addAPICalls(1) // 1 eligibility check call
 
 		if err != nil {
@@ -494,7 +500,7 @@ func (s *AssessmentService) scanOneCategory(
 		}
 	}
 	if len(eligibleASINs) > 0 {
-		enriched, err := spapi.GetProductDetails(ctx, eligibleASINs, "US")
+		enriched, err := spapi.GetProductDetails(ctx, eligibleASINs, marketplace)
 		cs.addAPICalls((len(eligibleASINs) + 19) / 20) // batch of 20
 		if err != nil {
 			slog.Warn("assessment: enrichment GetProductDetails failed", "category", cat.Name, "error", err)
