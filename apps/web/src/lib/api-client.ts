@@ -23,6 +23,7 @@ import type {
   ConnectSellerAccountRequest,
   AssessmentGraph,
   AssessmentOutcome,
+  TreeNode,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -219,7 +220,7 @@ class ApiClient {
   }
 
   getAssessmentGraph() {
-    return this.fetch<{ graph: AssessmentGraph; status: string; outcome?: AssessmentOutcome }>("/assessment/graph");
+    return this.fetch<{ tree: TreeNode; graph?: AssessmentGraph; status: string; outcome?: AssessmentOutcome; stats?: Record<string, number> }>("/assessment/graph");
   }
 
   // --- Strategy ---

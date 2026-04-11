@@ -61,6 +61,7 @@ export INNGEST_BASE_URL="http://127.0.0.1:8290"
 export INNGEST_DEV=true
 export INNGEST_EVENT_KEY=test
 export INNGEST_SIGNING_KEY=""
+export INNGEST_SERVE_HOST="http://host.docker.internal:8081"
 export OPENFANG_API_URL=""
 go run ./apps/api/main.go > /tmp/fba-api.log 2>&1 &
 API_PID=$!

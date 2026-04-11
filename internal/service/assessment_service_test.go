@@ -157,6 +157,9 @@ type assessMockSPAPI struct {
 	// Browse node responses: nodeID → products
 	browseNodeProducts map[string][]port.ProductSearchResult
 
+	// Keyword search responses: keyword → products (used by SearchProducts)
+	keywordProducts map[string][]port.ProductSearchResult
+
 	// Eligibility responses: ASIN → restriction
 	eligibilityResponses map[string]port.ListingRestriction
 	eligibilityErr       error
@@ -170,6 +173,7 @@ type assessMockSPAPI struct {
 func newAssessMockSPAPI() *assessMockSPAPI {
 	return &assessMockSPAPI{
 		browseNodeProducts:   make(map[string][]port.ProductSearchResult),
+		keywordProducts:      make(map[string][]port.ProductSearchResult),
 		eligibilityResponses: make(map[string]port.ListingRestriction),
 		errASINs:             make(map[string]bool),
 	}
@@ -207,7 +211,23 @@ func (m *assessMockSPAPI) CheckListingEligibility(_ context.Context, asins []str
 	return []port.ListingRestriction{{ASIN: asins[0], Allowed: true}}, nil
 }
 
-func (m *assessMockSPAPI) SearchProducts(_ context.Context, _ []string, _ string) ([]port.ProductSearchResult, error) {
+func (m *assessMockSPAPI) SearchProducts(_ context.Context, keywords []string, _ string) ([]port.ProductSearchResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.searchCalls++
+
+	// Try keyword match, then browse node match (for backward compat with tests using browseNodeProducts)
+	if len(keywords) > 0 {
+		if products, ok := m.keywordProducts[keywords[0]]; ok {
+			return products, nil
+		}
+	}
+	// Fallback: check browseNodeProducts keyed by keyword (tests may use category name as key)
+	if len(keywords) > 0 {
+		if products, ok := m.browseNodeProducts[keywords[0]]; ok {
+			return products, nil
+		}
+	}
 	return nil, nil
 }
 
@@ -412,7 +432,7 @@ func TestRunDiscoveryAssessment_FindsOpportunities(t *testing.T) {
 	for i := 0; i < 3 && i < len(DiscoveryCategories); i++ {
 		cat := DiscoveryCategories[i]
 		products := makeProducts(10, cat.BrowseNodeID, 30.0)
-		h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+		h.spapi.keywordProducts[cat.Name] = products
 	}
 
 	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
@@ -456,7 +476,7 @@ func TestRunDiscoveryAssessment_UngatingWhenNothingFound(t *testing.T) {
 	// Populate categories but make everything restricted
 	for _, cat := range DiscoveryCategories {
 		products := makeProducts(5, cat.BrowseNodeID, 30.0)
-		h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+		h.spapi.keywordProducts[cat.Name] = products
 		for _, p := range products {
 			h.spapi.eligibilityResponses[p.ASIN] = port.ListingRestriction{
 				ASIN:    p.ASIN,
@@ -514,7 +534,7 @@ func TestCircuitBreaker_PerCategorySkip(t *testing.T) {
 	// Set up first category with 20 products, all restricted
 	cat := DiscoveryCategories[0]
 	products := makeProducts(20, cat.BrowseNodeID, 30.0)
-	h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+	h.spapi.keywordProducts[cat.Name] = products
 	for _, p := range products {
 		h.spapi.eligibilityResponses[p.ASIN] = port.ListingRestriction{
 			ASIN:    p.ASIN,
@@ -566,7 +586,7 @@ func TestCircuitBreaker_EarlySuccess(t *testing.T) {
 	// Set up all categories with 20 eligible products each
 	for _, cat := range DiscoveryCategories {
 		products := makeProducts(20, cat.BrowseNodeID, 30.0)
-		h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+		h.spapi.keywordProducts[cat.Name] = products
 		// All products are eligible (default)
 	}
 
@@ -626,7 +646,7 @@ func TestCircuitBreaker_RepeatedFailure(t *testing.T) {
 	// Set up all categories with products, but first 3 all restricted, rest have some eligible
 	for i, cat := range DiscoveryCategories {
 		products := makeProducts(5, cat.BrowseNodeID, 30.0)
-		h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+		h.spapi.keywordProducts[cat.Name] = products
 
 		if i < cbEmptyCategoryThreshold {
 			// Make all restricted for first N categories
@@ -672,7 +692,7 @@ func TestCircuitBreaker_ZeroResults(t *testing.T) {
 	// All categories have products but all restricted
 	for _, cat := range DiscoveryCategories {
 		products := makeProducts(5, cat.BrowseNodeID, 30.0)
-		h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+		h.spapi.keywordProducts[cat.Name] = products
 		for _, p := range products {
 			h.spapi.eligibilityResponses[p.ASIN] = port.ListingRestriction{
 				ASIN:    p.ASIN,
@@ -719,7 +739,7 @@ func TestOpportunityResult_TopRecommendationsCapped(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		cat := DiscoveryCategories[i]
 		products := makeProducts(20, cat.BrowseNodeID, 50.0)
-		h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+		h.spapi.keywordProducts[cat.Name] = products
 	}
 
 	outcome, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
@@ -895,7 +915,7 @@ func TestRunDiscoveryAssessment_StoresEligibilityInSharedCatalog(t *testing.T) {
 	products := []port.ProductSearchResult{
 		{ASIN: "ASIN-SHARED-001", Title: "Test Product", Brand: "TestBrand", AmazonPrice: 25.0, SellerCount: 5},
 	}
-	h.spapi.browseNodeProducts[cat.BrowseNodeID] = products
+	h.spapi.keywordProducts[cat.Name] = products
 
 	_, err := h.svc.RunDiscoveryAssessment(ctx, assessTestTenant, h.spapi)
 	if err != nil {

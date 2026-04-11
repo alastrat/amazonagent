@@ -409,6 +409,19 @@ export interface AssessmentOutcome {
   ungating?: UngatingRoadmap;
 }
 
+// --- Assessment Tree (hierarchical drill-down) ---
+
+export interface TreeNode {
+  id: string;
+  name: string;
+  type?: "root" | "category" | "brand";
+  open_rate?: number;
+  eligible_count?: number;
+  total_count?: number;
+  eligible?: boolean;
+  children?: TreeNode[];
+}
+
 // --- End concierge types ---
 
 export type DiscoveryCadence = "nightly" | "twice_daily" | "weekly";

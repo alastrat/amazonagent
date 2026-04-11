@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/middleware"
@@ -94,56 +96,194 @@ func (h *AssessmentHandler) GetGraph(w http.ResponseWriter, r *http.Request) {
 		status = string(profile.AssessmentStatus)
 	}
 
-	// Build graph nodes from fingerprint
-	nodes := []map[string]any{
-		{"id": "root", "type": "root", "label": "Amazon US", "status": "scanned"},
+	// Build a lookup from DiscoveryCategories for canonical category names.
+	// Keys are lowercased names for fuzzy matching.
+	discoveryCatNames := make(map[string]string, len(service.DiscoveryCategories))
+	for _, dc := range service.DiscoveryCategories {
+		discoveryCatNames[strings.ToLower(dc.Name)] = dc.Name
 	}
-	edges := []map[string]any{}
+
+	// resolveCategoryName maps a possibly-empty or SP-API category string
+	// to the canonical DiscoveryCategories name.
+	resolveCategoryName := func(raw string) string {
+		if raw == "" {
+			return "Uncategorized"
+		}
+		if canonical, ok := discoveryCatNames[strings.ToLower(raw)]; ok {
+			return canonical
+		}
+		return raw
+	}
+
+	// slugify produces a URL-safe ID fragment from a name.
+	slugify := func(name string) string {
+		s := strings.ToLower(name)
+		s = strings.ReplaceAll(s, " & ", "-")
+		s = strings.ReplaceAll(s, ", ", "-")
+		s = strings.ReplaceAll(s, " ", "-")
+		return s
+	}
+
+	// ── Build tree structure ──────────────────────────────────────
+
+	type brandNode struct {
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		Type         string `json:"type"`
+		Eligible     bool   `json:"eligible"`
+		ProductCount int    `json:"product_count"`
+	}
+
+	type categoryNode struct {
+		ID            string      `json:"id"`
+		Name          string      `json:"name"`
+		Type          string      `json:"type"`
+		OpenRate      float64     `json:"open_rate"`
+		EligibleCount int         `json:"eligible_count"`
+		TotalCount    int         `json:"total_count"`
+		Children      []brandNode `json:"children"`
+	}
+
+	var categoryChildren []categoryNode
+	openBrandsSet := make(map[string]bool)
 
 	if fingerprint != nil {
+		// Deduplicate categories from fingerprint using a map.
+		type catInfo struct {
+			name          string
+			openRate      float64
+			eligibleCount int
+			totalCount    int
+		}
+		uniqueCats := make(map[string]*catInfo)
 		for _, cat := range fingerprint.Categories {
-			catID := "cat-" + cat.Category
-			catStatus := "scanned"
-			if cat.OpenCount > 0 {
-				catStatus = "eligible"
+			resolved := resolveCategoryName(cat.Category)
+			key := strings.ToLower(resolved)
+			if existing, ok := uniqueCats[key]; ok {
+				existing.eligibleCount += cat.OpenCount
+				existing.totalCount += cat.ProbeCount
+				if existing.totalCount > 0 {
+					existing.openRate = float64(existing.eligibleCount) / float64(existing.totalCount) * 100
+				}
 			} else {
-				catStatus = "restricted"
+				uniqueCats[key] = &catInfo{
+					name:          resolved,
+					openRate:      cat.OpenRate,
+					eligibleCount: cat.OpenCount,
+					totalCount:    cat.ProbeCount,
+				}
 			}
-			nodes = append(nodes, map[string]any{
-				"id": catID, "type": "category", "label": cat.Category,
-				"status": catStatus, "open_rate": cat.OpenRate,
-			})
-			edges = append(edges, map[string]any{"source": "root", "target": catID})
 		}
 
-		for _, br := range fingerprint.BrandResults {
-			brandID := "brand-" + br.Brand + "-" + br.ASIN
-			brandStatus := "restricted"
-			if br.Eligible {
-				brandStatus = "eligible"
-			}
-			nodes = append(nodes, map[string]any{
-				"id": brandID, "type": "product", "label": br.ASIN,
-				"status": brandStatus, "eligible": br.Eligible,
-			})
-			catID := "cat-" + br.Category
-			edges = append(edges, map[string]any{"source": catID, "target": brandID})
+		// Group brand results by category, then by brand within each category.
+		// brand key = lowercase(category + "|" + brand)
+		type brandAgg struct {
+			brand        string
+			eligible     bool   // true if ANY product in this brand is eligible
+			productCount int
 		}
+		catBrands := make(map[string]map[string]*brandAgg) // catKey -> brandKey -> agg
+
+		for _, br := range fingerprint.BrandResults {
+			resolvedCat := resolveCategoryName(br.Category)
+			catKey := strings.ToLower(resolvedCat)
+			brandName := br.Brand
+			if brandName == "" {
+				brandName = "Unknown Brand"
+			}
+			brandKey := strings.ToLower(brandName)
+
+			if catBrands[catKey] == nil {
+				catBrands[catKey] = make(map[string]*brandAgg)
+			}
+			if existing, ok := catBrands[catKey][brandKey]; ok {
+				existing.productCount++
+				if br.Eligible {
+					existing.eligible = true
+				}
+			} else {
+				catBrands[catKey][brandKey] = &brandAgg{
+					brand:        brandName,
+					eligible:     br.Eligible,
+					productCount: 1,
+				}
+			}
+
+			if br.Eligible && brandName != "Unknown Brand" {
+				openBrandsSet[brandName] = true
+			}
+		}
+
+		// Build category nodes with brand children.
+		for catKey, ci := range uniqueCats {
+			catSlug := slugify(ci.name)
+			catNode := categoryNode{
+				ID:            "cat-" + catSlug,
+				Name:          ci.name,
+				Type:          "category",
+				OpenRate:      ci.openRate,
+				EligibleCount: ci.eligibleCount,
+				TotalCount:    ci.totalCount,
+			}
+
+			if brands, ok := catBrands[catKey]; ok {
+				for _, ba := range brands {
+					bn := brandNode{
+						ID:           fmt.Sprintf("brand-%s", slugify(ba.brand)),
+						Name:         ba.brand,
+						Type:         "brand",
+						Eligible:     ba.eligible,
+						ProductCount: ba.productCount,
+					}
+					catNode.Children = append(catNode.Children, bn)
+				}
+			}
+
+			categoryChildren = append(categoryChildren, catNode)
+		}
+	}
+
+	// ── Build tree root ───────────────────────────────────────────
+
+	tree := map[string]any{
+		"id":       "root",
+		"name":     "Amazon US",
+		"children": categoryChildren,
+	}
+
+	// ── Stats with deduplicated category count ────────────────────
+
+	categoriesScanned := 0
+	eligibleProducts := 0
+	restrictedProducts := 0
+
+	if fingerprint != nil {
+		// Deduplicate categories for the scanned count.
+		seen := make(map[string]bool)
+		for _, cat := range fingerprint.Categories {
+			resolved := resolveCategoryName(cat.Category)
+			key := strings.ToLower(resolved)
+			if !seen[key] {
+				seen[key] = true
+				categoriesScanned++
+			}
+		}
+		eligibleProducts = fingerprint.TotalEligible
+		restrictedProducts = fingerprint.TotalRestricted
 	}
 
 	stats := map[string]any{
-		"categories_scanned": 0, "categories_total": 20,
-		"eligible_products": 0, "restricted_products": 0,
-	}
-	if fingerprint != nil {
-		stats["categories_scanned"] = len(fingerprint.Categories)
-		stats["eligible_products"] = fingerprint.TotalEligible
-		stats["restricted_products"] = fingerprint.TotalRestricted
+		"categories_scanned":  categoriesScanned,
+		"categories_total":    len(service.DiscoveryCategories),
+		"eligible_products":   eligibleProducts,
+		"restricted_products": restrictedProducts,
+		"open_brands":         len(openBrandsSet),
 	}
 
 	response.JSON(w, http.StatusOK, map[string]any{
 		"status": status,
-		"graph":  map[string]any{"nodes": nodes, "edges": edges, "stats": stats},
+		"tree":   tree,
+		"stats":  stats,
 	})
 }
 

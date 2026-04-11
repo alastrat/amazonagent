@@ -25,6 +25,7 @@ import type {
   AssessmentOutcome,
   CategorySummary,
   ProductRecommendation,
+  TreeNode,
   UngatingStep,
 } from "@/lib/types";
 
@@ -122,6 +123,7 @@ export default function OnboardingPage() {
 
   const outcome: AssessmentOutcome | undefined = graphData?.outcome;
   const graph: AssessmentGraph | undefined = graphData?.graph;
+  const tree: TreeNode | undefined = graphData?.tree;
 
   return (
     <div className="space-y-6">
@@ -295,13 +297,13 @@ export default function OnboardingPage() {
           </Card>
 
           {/* Graph visualization */}
-          {graph && graph.nodes.length > 0 && (
+          {tree && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Discovery Graph</CardTitle>
               </CardHeader>
               <CardContent>
-                <DiscoveryGraph graph={graph} width={680} height={440} />
+                <DiscoveryGraph tree={tree} width={680} height={440} />
               </CardContent>
             </Card>
           )}
@@ -362,11 +364,11 @@ export default function OnboardingPage() {
                     </CardContent>
                   </Card>
 
-                  {/* Top recommendations */}
+                  {/* Top Opportunities */}
                   {outcome.opportunity.products.length > 0 && (
                     <Card>
                       <CardHeader>
-                        <CardTitle>Top Product Recommendations</CardTitle>
+                        <CardTitle>Top Opportunities</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="rounded-lg border">
@@ -375,21 +377,28 @@ export default function OnboardingPage() {
                               <tr className="border-b bg-muted/50">
                                 <th className="px-4 py-2 text-left font-medium">ASIN</th>
                                 <th className="px-4 py-2 text-left font-medium">Title</th>
+                                <th className="px-4 py-2 text-left font-medium">Brand</th>
+                                <th className="px-4 py-2 text-left font-medium">Category</th>
                                 <th className="px-4 py-2 text-left font-medium">Price</th>
                                 <th className="px-4 py-2 text-left font-medium">Est. Margin</th>
                                 <th className="px-4 py-2 text-left font-medium">Sellers</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {outcome.opportunity.products.map((p: ProductRecommendation) => (
-                                <tr key={p.asin} className="border-b last:border-0">
-                                  <td className="px-4 py-2 font-mono text-xs">{p.asin}</td>
-                                  <td className="px-4 py-2 max-w-[200px] truncate">{p.title}</td>
-                                  <td className="px-4 py-2">${p.buy_box_price.toFixed(2)}</td>
-                                  <td className="px-4 py-2">{p.est_margin_pct.toFixed(1)}%</td>
-                                  <td className="px-4 py-2">{p.seller_count}</td>
-                                </tr>
-                              ))}
+                              {[...outcome.opportunity.products]
+                                .sort((a, b) => b.est_margin_pct - a.est_margin_pct)
+                                .slice(0, 20)
+                                .map((p: ProductRecommendation) => (
+                                  <tr key={p.asin} className="border-b last:border-0 hover:bg-muted/30">
+                                    <td className="px-4 py-2 font-mono text-xs">{p.asin}</td>
+                                    <td className="px-4 py-2 max-w-[200px] truncate">{p.title}</td>
+                                    <td className="px-4 py-2 text-muted-foreground">{p.brand}</td>
+                                    <td className="px-4 py-2 text-muted-foreground">{p.category}</td>
+                                    <td className="px-4 py-2">${p.buy_box_price.toFixed(2)}</td>
+                                    <td className="px-4 py-2">{p.est_margin_pct.toFixed(1)}%</td>
+                                    <td className="px-4 py-2">{p.seller_count}</td>
+                                  </tr>
+                                ))}
                             </tbody>
                           </table>
                         </div>
@@ -565,19 +574,19 @@ export default function OnboardingPage() {
                 </>
               )}
 
-              {/* Graph in static/interactive mode */}
-              {graph && graph.nodes.length > 0 && (
+              {/* Hierarchical tree visualization */}
+              {tree && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">
                       Eligibility Map{" "}
                       <span className="text-xs font-normal text-muted-foreground">
-                        (hover nodes to explore)
+                        (click categories to expand/collapse)
                       </span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <DiscoveryGraph graph={graph} width={680} height={440} interactive />
+                    <DiscoveryGraph tree={tree} width={680} height={440} />
                   </CardContent>
                 </Card>
               )}
