@@ -65,8 +65,8 @@ func (r *ChatRepo) SaveMessage(ctx context.Context, msg *domain.ChatMessage) err
 	metadata, _ := json.Marshal(m)
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO chat_messages (id, tenant_id, session_id, role, content, metadata, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, msg.ID, msg.TenantID, msg.SessionID, msg.Role, msg.Content, metadata, msg.CreatedAt)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+	`, msg.ID, msg.TenantID, msg.SessionID, msg.Role, msg.Content, string(metadata), msg.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save chat message: %w", err)
 	}
