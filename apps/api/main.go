@@ -193,6 +193,12 @@ func main() {
 		}
 	}
 
+	// Chat service
+	chatRepo := postgres.NewChatRepo(pool)
+	chatHub := service.NewChatHub()
+	convRuntime, _ := agentRuntime.(port.ConversationalRuntime)
+	chatSvc := service.NewChatService(chatRepo, convRuntime, chatHub, idGen, sellerProfileRepo, eligibilityFPRepo)
+
 	// Handlers
 	handlers := api.Handlers{
 		Health:         handler.NewHealthHandler(),
@@ -212,6 +218,7 @@ func main() {
 		Strategy:       handler.NewStrategyHandler(strategySvc),
 		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
 		SellerAccount:  handler.NewSellerAccountHandler(sellerAccountSvc),
+		Chat:           handler.NewChatHandler(chatSvc, chatHub),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)
