@@ -52,6 +52,7 @@ fi
 
 # --- 1b. OpenFang ---
 echo -e "${GREEN}[1b/5] Starting OpenFang on port 4200...${NC}"
+docker rm -f fba_agent_orchestrator-openfang-1 2>/dev/null
 docker compose --profile openfang up -d openfang 2>/dev/null
 echo -e "     ${GREEN}OpenFang starting (port 4200).${NC}"
 
