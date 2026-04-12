@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
+	"github.com/pluriza/fba-agent-orchestrator/internal/port"
 )
 
 type AgentRuntime struct{}
@@ -146,6 +147,26 @@ func simulateSupplier(input map[string]any) map[string]any {
 		"outreach_draft": "Hi, I'm interested in wholesale pricing for this product. We're an established Amazon FBA seller...",
 		"reasoning":      fmt.Sprintf("Found %d suppliers, best price: $%.2f", numSuppliers, wholesaleCost*0.95),
 	}
+}
+
+// ConversationalRuntime methods for testing
+
+func (r *AgentRuntime) StartSession(_ context.Context, tenantID domain.TenantID, _ port.SessionConfig) (string, error) {
+	return fmt.Sprintf("sim-session-%s", tenantID), nil
+}
+
+func (r *AgentRuntime) SendMessage(_ context.Context, sessionID string, message string) (*domain.AgentOutput, error) {
+	time.Sleep(100 * time.Millisecond)
+	return &domain.AgentOutput{
+		Structured: map[string]any{"message": fmt.Sprintf("Simulated response to: %s", message)},
+		Raw:        fmt.Sprintf("Simulated response to: %s", message),
+		TokensUsed: 50 + rand.Intn(200),
+		DurationMs: 100,
+	}, nil
+}
+
+func (r *AgentRuntime) EndSession(_ context.Context, _ string) error {
+	return nil
 }
 
 func simulateReviewer(input map[string]any) map[string]any {

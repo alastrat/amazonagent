@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/domain"
+	"github.com/pluriza/fba-agent-orchestrator/internal/port"
 )
 
 // AgentRuntime implements port.AgentRuntime by calling OpenFang's HTTP API.
@@ -432,4 +433,54 @@ func extractJSON(text string) string {
 	}
 
 	return ""
+}
+
+// ---------------------------------------------------------------------------
+// ConversationalRuntime — session-based methods for the chat interface
+// ---------------------------------------------------------------------------
+
+// StartSession creates a persistent agent session with memory enabled.
+func (r *AgentRuntime) StartSession(ctx context.Context, tenantID domain.TenantID, config port.SessionConfig) (string, error) {
+	sessionKey := fmt.Sprintf("concierge:%s", tenantID)
+
+	agentID, err := r.getOrSpawnAgent(ctx, sessionKey, config.SystemPrompt)
+	if err != nil {
+		return "", fmt.Errorf("start session for %s: %w", tenantID, err)
+	}
+
+	// Don't reset session — memory stays on for chat
+	slog.Info("openfang: session started",
+		"tenant_id", tenantID,
+		"agent_id", agentID,
+		"session_key", sessionKey,
+	)
+
+	return agentID, nil
+}
+
+// SendMessage sends a user message within an existing session and returns the response.
+func (r *AgentRuntime) SendMessage(ctx context.Context, sessionID string, message string) (*domain.AgentOutput, error) {
+	start := time.Now()
+
+	resp, err := r.sendMessage(ctx, sessionID, message)
+	if err != nil {
+		return nil, fmt.Errorf("send chat message: %w", err)
+	}
+
+	// For chat, we return the raw response — no JSON parsing needed
+	return &domain.AgentOutput{
+		Structured: map[string]any{
+			"message": resp.GetResponse(),
+		},
+		Raw:        resp.GetResponse(),
+		TokensUsed: resp.InputTokens + resp.OutputTokens,
+		DurationMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+// EndSession closes a session and resets state.
+func (r *AgentRuntime) EndSession(ctx context.Context, sessionID string) error {
+	r.resetSession(ctx, sessionID)
+	slog.Info("openfang: session ended", "session_id", sessionID)
+	return nil
 }
