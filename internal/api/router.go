@@ -27,6 +27,7 @@ type Handlers struct {
 	Strategy      *handler.StrategyHandler
 	Suggestion    *handler.SuggestionHandler
 	SellerAccount *handler.SellerAccountHandler
+	Chat          *handler.ChatHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -105,6 +106,10 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Post("/seller-account/connect", h.SellerAccount.Connect)
 		r.Get("/seller-account", h.SellerAccount.Get)
 		r.Delete("/seller-account/disconnect", h.SellerAccount.Disconnect)
+
+		r.Post("/chat/send", h.Chat.Send)
+		r.Get("/chat/events", h.Chat.Events)
+		r.Get("/chat/history", h.Chat.History)
 
 		r.Get("/settings", h.Settings.Get)
 		r.Put("/settings", h.Settings.Update)
