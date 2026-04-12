@@ -58,10 +58,11 @@ func (r *ChatRepo) UpdateSession(ctx context.Context, session *domain.ChatSessio
 }
 
 func (r *ChatRepo) SaveMessage(ctx context.Context, msg *domain.ChatMessage) error {
-	metadata, _ := json.Marshal(msg.Metadata)
-	if metadata == nil {
-		metadata = []byte("{}")
+	m := msg.Metadata
+	if m == nil {
+		m = map[string]any{}
 	}
+	metadata, _ := json.Marshal(m)
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO chat_messages (id, tenant_id, session_id, role, content, metadata, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
