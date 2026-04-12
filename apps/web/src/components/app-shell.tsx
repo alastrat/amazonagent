@@ -22,13 +22,12 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [chatOpen, setChatOpen] = useState(false);
-
-  // Persist chat panel state in localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("chat-panel-open");
-    if (saved === "true") setChatOpen(true);
-  }, []);
+  const [chatOpen, setChatOpen] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("chat-panel-open") === "true";
+    }
+    return false;
+  });
 
   useEffect(() => {
     localStorage.setItem("chat-panel-open", String(chatOpen));
