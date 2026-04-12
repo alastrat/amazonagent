@@ -9,6 +9,9 @@ import (
 	"github.com/pluriza/fba-agent-orchestrator/internal/port"
 )
 
+// AuthContextKey is exported for test injection of auth context.
+var AuthContextKey = ctxKeyAuth{}
+
 type ctxKeyAuth struct{}
 
 func Auth(provider port.AuthProvider) func(http.Handler) http.Handler {

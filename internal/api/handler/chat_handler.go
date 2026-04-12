@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/middleware"
@@ -36,9 +38,15 @@ func (h *ChatHandler) Send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send message asynchronously — response streams via SSE
+	// Send message asynchronously — response streams via SSE.
+	// Use background context since the HTTP request context cancels when we respond.
+	tenantID := ac.TenantID
+	message := req.Message
 	go func() {
-		_, _ = h.chat.SendMessage(r.Context(), ac.TenantID, req.Message)
+		ctx := context.Background()
+		if _, err := h.chat.SendMessage(ctx, tenantID, message); err != nil {
+			slog.Error("chat: async send failed", "tenant_id", tenantID, "error", err)
+		}
 	}()
 
 	response.JSON(w, http.StatusAccepted, map[string]string{
