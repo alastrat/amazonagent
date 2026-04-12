@@ -46,6 +46,16 @@ func NewConciergeToolkit(deps ToolDeps) *ConciergeToolkit {
 }
 
 func (tk *ConciergeToolkit) register() {
+	tk.tools["get_assessment_summary"] = &ConciergeTool{
+		Name:        "get_assessment_summary",
+		Description: "Get a summary of the seller's assessment results — the same data shown on the onboarding page. Shows deduplicated counts of eligible, ungatable, and restricted products, category breakdown, and open brands. Always call this first to understand the seller's situation.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+		Execute: tk.getAssessmentSummary,
+	}
+
 	tk.tools["get_eligible_products"] = &ConciergeTool{
 		Name:        "get_eligible_products",
 		Description: "Get the list of products the seller can list immediately on Amazon. Returns ASINs, titles, prices, margins, brands, and categories.",
@@ -146,6 +156,73 @@ func (tk *ConciergeToolkit) Execute(ctx context.Context, name string, input json
 
 // --- Tool implementations ---
 
+// dedup returns products deduplicated by ASIN, sorted by margin descending.
+func dedup(results []map[string]any) []map[string]any {
+	seen := make(map[string]bool)
+	var out []map[string]any
+	for _, r := range results {
+		asin, _ := r["asin"].(string)
+		if asin == "" || seen[asin] {
+			continue
+		}
+		seen[asin] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+func (tk *ConciergeToolkit) getAssessmentSummary(ctx context.Context, _ json.RawMessage) (string, error) {
+	fp, err := tk.fps.Get(ctx, tk.tenantID(ctx))
+	if err != nil {
+		return "No assessment data available. Please complete onboarding first.", nil
+	}
+
+	// Deduplicate by ASIN — same logic as the onboarding page
+	seen := make(map[string]bool)
+	eligible, ungatable, restricted := 0, 0, 0
+	brands := make(map[string]bool)
+
+	for _, br := range fp.BrandResults {
+		if seen[br.ASIN] {
+			continue
+		}
+		seen[br.ASIN] = true
+		switch br.EligibilityStatus {
+		case "eligible":
+			eligible++
+		case "ungatable":
+			ungatable++
+		default:
+			restricted++
+		}
+		if br.EligibilityStatus == "eligible" || br.EligibilityStatus == "ungatable" {
+			brands[br.Brand] = true
+		}
+	}
+
+	var cats []map[string]any
+	for _, cat := range fp.Categories {
+		cats = append(cats, map[string]any{
+			"category":  cat.Category,
+			"probed":    cat.ProbeCount,
+			"open":      cat.OpenCount,
+			"open_rate": cat.OpenRate,
+		})
+	}
+
+	b, _ := json.Marshal(map[string]any{
+		"total_products":      len(seen),
+		"eligible_products":   eligible,
+		"ungatable_products":  ungatable,
+		"restricted_products": restricted,
+		"open_brands":         len(brands),
+		"categories_scanned":  len(fp.Categories),
+		"overall_open_rate":   fp.OverallOpenRate,
+		"categories":          cats,
+	})
+	return string(b), nil
+}
+
 func (tk *ConciergeToolkit) getEligibleProducts(ctx context.Context, _ json.RawMessage) (string, error) {
 	fp, err := tk.fps.Get(ctx, tk.tenantID(ctx))
 	if err != nil {
@@ -166,6 +243,7 @@ func (tk *ConciergeToolkit) getEligibleProducts(ctx context.Context, _ json.RawM
 			})
 		}
 	}
+	results = dedup(results)
 	b, _ := json.Marshal(map[string]any{"eligible_products": results, "count": len(results)})
 	return string(b), nil
 }
@@ -190,7 +268,16 @@ func (tk *ConciergeToolkit) getUngatableProducts(ctx context.Context, _ json.Raw
 			})
 		}
 	}
-	b, _ := json.Marshal(map[string]any{"ungatable_products": results, "count": len(results)})
+	results = dedup(results)
+	// Limit to top 20 to keep response fast — Claude can ask for more
+	if len(results) > 20 {
+		results = results[:20]
+	}
+	b, _ := json.Marshal(map[string]any{
+		"ungatable_products": results,
+		"count":             len(results),
+		"note":              "Showing top 20 by margin. Ask for more if needed.",
+	})
 	return string(b), nil
 }
 

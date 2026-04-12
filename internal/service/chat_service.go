@@ -183,6 +183,13 @@ func (s *ChatService) GetHistory(ctx context.Context, tenantID domain.TenantID, 
 func (s *ChatService) buildSystemPrompt(ctx context.Context, tenantID domain.TenantID) string {
 	prompt := `You are an FBA wholesale concierge for an Amazon seller. You help them find profitable products they can list and sell on Amazon via wholesale/arbitrage.
 
+IMPORTANT: You have tools that query REAL data from the seller's account. Use them — don't guess.
+- ALWAYS call get_assessment_summary first to understand the seller's current situation
+- Use get_eligible_products to show products they can list NOW
+- Use get_ungatable_products to show products they can apply for approval
+- Use search_products to find new products on Amazon
+- Use check_eligibility to verify if a specific ASIN can be listed
+
 Guidelines:
 - Be concise and actionable — this is a seller who wants to make money, not read essays
 - When discussing products, always reference ASIN, price, estimated margin, and eligibility status
@@ -199,71 +206,9 @@ Guidelines:
 		prompt += fmt.Sprintf("\n## Seller Profile\nArchetype: %s\n", profile.Archetype)
 	}
 
-	// Inject assessment results with real product data
-	fp, err := s.fingerprints.Get(ctx, tenantID)
-	if err == nil && fp != nil {
-		prompt += fmt.Sprintf("\n## Assessment Summary\n")
-		prompt += fmt.Sprintf("- Products scanned: %d\n", fp.TotalProbes)
-		prompt += fmt.Sprintf("- Overall open rate: %.0f%%\n", fp.OverallOpenRate)
-		prompt += fmt.Sprintf("- Total eligible: %d\n", fp.TotalEligible)
-		prompt += fmt.Sprintf("- Total restricted: %d\n", fp.TotalRestricted)
-
-		// Category breakdown
-		if len(fp.Categories) > 0 {
-			prompt += "\n## Categories Scanned\n"
-			for _, cat := range fp.Categories {
-				prompt += fmt.Sprintf("- %s: %d probed, %d open, %.0f%% open rate\n",
-					cat.Category, cat.ProbeCount, cat.OpenCount, cat.OpenRate)
-			}
-		}
-
-		// Product details — eligible and ungatable
-		if len(fp.BrandResults) > 0 {
-			eligible := []domain.BrandProbeResult{}
-			ungatable := []domain.BrandProbeResult{}
-			restricted := []domain.BrandProbeResult{}
-
-			for _, br := range fp.BrandResults {
-				switch br.EligibilityStatus {
-				case "eligible":
-					eligible = append(eligible, br)
-				case "ungatable":
-					ungatable = append(ungatable, br)
-				default:
-					restricted = append(restricted, br)
-				}
-			}
-
-			if len(eligible) > 0 {
-				prompt += fmt.Sprintf("\n## Eligible Products (%d) — Can list immediately\n", len(eligible))
-				for _, p := range eligible {
-					prompt += fmt.Sprintf("- ASIN: %s | %s | Brand: %s | Category: %s > %s | Price: $%.2f | Est. Margin: %.1f%% | Sellers: %d\n",
-						p.ASIN, truncate(p.Title, 50), p.Brand, p.Category, p.Subcategory, p.Price, p.EstMarginPct, p.SellerCount)
-				}
-			}
-
-			if len(ungatable) > 0 {
-				prompt += fmt.Sprintf("\n## Ungatable Products (%d) — Can apply for approval\n", len(ungatable))
-				for _, p := range ungatable {
-					approvalNote := ""
-					if p.ApprovalURL != "" {
-						approvalNote = fmt.Sprintf(" | Approval URL: %s", p.ApprovalURL)
-					}
-					prompt += fmt.Sprintf("- ASIN: %s | %s | Brand: %s | Category: %s > %s | Price: $%.2f | Est. Margin: %.1f%%%s\n",
-						p.ASIN, truncate(p.Title, 50), p.Brand, p.Category, p.Subcategory, p.Price, p.EstMarginPct, approvalNote)
-				}
-			}
-
-			prompt += fmt.Sprintf("\n## Restricted Products: %d (truly blocked, no approval path)\n", len(restricted))
-		}
-	}
+	// Don't inject product data into system prompt — tools provide it on demand.
+	// This keeps the system prompt small for faster responses.
+	prompt += "\nUse your tools to get real-time data. Don't rely on cached information.\n"
 
 	return prompt
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
 }

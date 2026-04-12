@@ -214,11 +214,13 @@ func TestGetOrCreateSession_ReturnsExistingActive(t *testing.T) {
 		t.Errorf("expected same session ID, got %q and %q", first.ID, second.ID)
 	}
 
+	// StartSession is now called on every GetOrCreateSession (for restart recovery),
+	// but the DB session should be reused (same ID returned both times).
 	runtime.mu.Lock()
 	startCalls := runtime.startCalls
 	runtime.mu.Unlock()
-	if startCalls != 1 {
-		t.Errorf("StartSession called %d times, want 1 (should reuse existing)", startCalls)
+	if startCalls != 2 {
+		t.Errorf("StartSession called %d times, want 2 (called each time for recovery)", startCalls)
 	}
 }
 
