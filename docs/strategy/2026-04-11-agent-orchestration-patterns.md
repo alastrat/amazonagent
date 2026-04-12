@@ -1,77 +1,14 @@
 # Agent Orchestration Patterns: What to Replicate from Claude Code
 
-*Last updated: 2026-04-12*
+*Last updated: 2026-04-11*
 *Status: Draft -- pending engineering review*
-*Source analysis: Claude Code open-source project (Anthropic), LangChain Agent Harness framework*
+*Source analysis: Claude Code open-source project (Anthropic)*
 
 ---
 
 ## Executive Summary
 
-This document identifies eight agent orchestration patterns that can be replicated in Estori's FBA agent orchestrator, drawn from two sources: Claude Code's open-source architecture (Anthropic) and LangChain's "Anatomy of an Agent Harness" framework. The patterns are prioritized by value and effort, with a phased implementation roadmap. The goal is to evolve Estori from a hardcoded sequential pipeline into a flexible, observable, and resilient multi-agent system.
-
-LangChain defines: **Agent = Model + Harness**, where the harness is "every piece of code, configuration, and execution logic that isn't the model itself." This document maps Estori's current architecture against both frameworks and identifies the gaps that matter for FBA wholesale domain agents.
-
----
-
-## LangChain Agent Harness: Gap Analysis
-
-LangChain identifies 8 core harness components. Here is where Estori stands on each:
-
-### Coverage Matrix
-
-| Harness Component | Coverage | Estori Today | Domain Relevance |
-|---|---|---|---|
-| **Filesystem Layer** | 20% | Agents have no workspace. Shared catalog is the closest analogue, but agents can't read/write files. No AGENTS.md-style continual learning. | Low -- shared catalog DB serves this role for FBA agents |
-| **Code Execution** | 0% | Agents cannot write or execute code. They receive pre-fetched data and return JSON. | N/A -- FBA agents evaluate deals, not write code |
-| **Sandboxing** | 30% | OpenFang runs agents via HTTP (network isolation by default). No on-demand sandboxes, no per-agent environment isolation. | Low -- agents don't execute code or access filesystem |
-| **Memory & Knowledge** | 40% | `ToolResolver` pre-fetches SP-API, Exa (web search), Firecrawl (scraping). But agents have no direct tool access. No MCP integration. No persistent agent memory across runs. | High -- addressed by Pattern 5 + Autoresearch (Phase 6) |
-| **Context Management** | 20% | No compaction strategy. No tool-call offloading. No progressive disclosure. Every agent gets the full accumulated `[]AgentContext` dumped as JSON. | High -- addressed by Patterns 4 and 5 |
-| **Agent Loop (ReAct)** | 0% | Agents are single-shot: one prompt in, one JSON out. No reason-act-observe loop. The pipeline provides multi-step reasoning, but each agent is one-and-done. | High -- addressed by new Pattern 8 |
-| **Long-Horizon Execution** | 40% | Inngest provides durable execution across failures and restarts. But no context window continuation and no planning-then-verification framework. | Medium -- Inngest durability is sufficient for pipeline runs |
-| **Multi-Agent Orchestration** | 40% | Sequential pipeline with Inngest fan-out for candidates. No dynamic subagent spawning, no handoffs, no shared collaboration surface between agents. | High -- addressed by Patterns 2, 3, 6 |
-
-### Scorecard
-
-```
-Filesystem Layer         ##........  20%  -- Shared catalog DB serves this role
-Code Execution           ..........   0%  -- Not applicable (by design)
-Sandboxing               ###.......  30%  -- HTTP isolation via OpenFang sufficient
-Memory & Knowledge       ####......  40%  -- ToolResolver pre-fetches, no direct access
-Context Management       ##........  20%  -- No compaction, offloading, or progressive load
-Agent Loop (ReAct)       ..........   0%  -- Single-shot agents, no iterative loops
-Long-Horizon Execution   ####......  40%  -- Inngest durable execution, no continuation
-Multi-Agent Orchestration####......  40%  -- Sequential pipeline + fan-out only
-```
-
-### What Matters vs What Doesn't for FBA Wholesale
-
-Not every gap needs filling. LangChain's framework is generic -- built for coding agents with filesystem access. Estori's agents are domain-specific data evaluators.
-
-**Must fix (high impact):**
-- Context Management -- agents currently get the full context soup; will degrade as pipelines grow
-- Agent Loop (ReAct) -- single-shot agents can't self-correct when assumptions are wrong
-- Multi-Agent Orchestration -- no dynamic spawning, no parallel stages within candidate evaluation
-
-**Correctly skipped (low impact for this domain):**
-- Code Execution -- FBA agents don't write code; the pre-fetch pattern is the right choice
-- Filesystem Layer -- shared catalog database serves the same purpose as an agent workspace
-- Sandboxing -- HTTP-level isolation via OpenFang is sufficient since agents don't execute code
-
-### Post-Implementation Coverage
-
-After implementing all 8 patterns documented below:
-
-| Harness Component | Patterns | Coverage |
-|---|---|---|
-| Filesystem Layer | -- (shared catalog serves this role) | Adequate for domain |
-| Code Execution | -- (not applicable) | N/A |
-| Sandboxing | -- (OpenFang HTTP isolation) | Adequate |
-| Memory & Knowledge | Pattern 5 (Per-Agent Tools) + Autoresearch (Phase 6) | Good |
-| Context Management | Pattern 4 (Structured Context) + Pattern 5 (Tool Access) | Good |
-| Agent Loop | Pattern 8 (ReAct Loop) + Pattern 6 (Coordinator re-eval) | Good |
-| Long-Horizon Execution | Pattern 2 (Task State Machine) + Inngest | Good |
-| Multi-Agent Orchestration | Patterns 2, 3, 6, 7 (Tasks, Parallel, Coordinator, Hooks) | Strong |
+This document identifies seven agent orchestration patterns from Claude Code's architecture that can be replicated in Estori's FBA agent orchestrator. The patterns are prioritized by value and effort, with a phased implementation roadmap. The goal is to evolve Estori from a hardcoded sequential pipeline into a flexible, observable, and resilient multi-agent system.
 
 ---
 
@@ -1090,217 +1027,6 @@ func init() {
 
 ---
 
-## Pattern 8: Agent ReAct Loop
-
-### Value: High | Effort: Medium | Priority: P1
-
-### Source: LangChain Agent Harness Framework
-
-LangChain identifies the ReAct loop as the core agent execution pattern: "a model reasons, takes an action via a tool call, observes the result, and repeats in a while loop." This is the single biggest conceptual gap in Estori's current architecture identified by the harness analysis.
-
-### What Claude Code Does
-
-Every agent runs in a query loop (`runAgent.ts`): the LLM reasons, emits tool calls, observes results, and decides whether to continue or stop. `maxTurns` controls the loop budget. The agent can self-correct, request more information, or refine its answer across multiple turns.
-
-### What LangChain Describes
-
-The ReAct pattern: reason -> act -> observe -> repeat. Combined with planning/verification for long-horizon tasks. The model decomposes goals, executes steps, and self-evaluates outputs.
-
-### What Estori Has
-
-Agents are single-shot: one prompt in, one JSON out. No iterative refinement. When the profitability agent makes a wrong assumption about margin calculation methodology, it has no mechanism to re-examine. The pipeline as a whole provides multi-step reasoning (each stage builds on the prior), but each individual agent is one-and-done.
-
-### What to Build
-
-```go
-// internal/domain/agent_definition.go -- addition to AgentDefinition
-
-type AgentDefinition struct {
-    // ... existing fields ...
-    MaxTurns      int    `json:"max_turns"`       // max reasoning loops (1 = single-shot, default)
-    CanSelfRefine bool   `json:"can_self_refine"` // agent can critique and retry its own output
-    StopCondition string `json:"stop_condition"`  // "confidence >= 8" or "all_fields_present"
-}
-```
-
-#### Multi-Turn Agent Execution
-
-```go
-// internal/service/agent_loop.go
-
-type AgentLoopConfig struct {
-    MaxTurns       int
-    StopCondition  func(output *domain.AgentOutput) bool
-    RefinePrompt   func(turn int, prevOutput *domain.AgentOutput) string
-}
-
-// RunAgentLoop executes an agent with iterative refinement
-func (o *PipelineOrchestrator) RunAgentLoop(
-    ctx context.Context,
-    run *PipelineRun,
-    def AgentDefinition,
-    baseTask domain.AgentTask,
-    loopConfig AgentLoopConfig,
-    parentTaskID *string,
-) (*domain.AgentOutput, *AgentTaskRecord, error) {
-    var lastOutput *domain.AgentOutput
-    var lastRecord *AgentTaskRecord
-
-    for turn := 0; turn < loopConfig.MaxTurns; turn++ {
-        task := baseTask
-        if turn > 0 && loopConfig.RefinePrompt != nil {
-            // Inject refinement context from previous turn
-            refinement := loopConfig.RefinePrompt(turn, lastOutput)
-            task.Input["_refinement_context"] = refinement
-            task.Input["_turn"] = turn
-        }
-
-        output, record, err := o.runAgentWithTracking(ctx, run, def, task, parentTaskID)
-        if err != nil {
-            return nil, record, err
-        }
-
-        lastOutput = output
-        lastRecord = record
-
-        // Check stop condition
-        if loopConfig.StopCondition != nil && loopConfig.StopCondition(output) {
-            break
-        }
-
-        // If agent can't self-refine, single-shot only
-        if !def.CanSelfRefine {
-            break
-        }
-    }
-
-    return lastOutput, lastRecord, nil
-}
-```
-
-#### Default Stop Conditions
-
-```go
-// internal/service/stop_conditions.go
-
-// ConfidenceThreshold stops when the agent reports confidence above a threshold
-func ConfidenceThreshold(threshold int) func(*domain.AgentOutput) bool {
-    return func(output *domain.AgentOutput) bool {
-        confidence, ok := output.Structured["confidence"].(float64)
-        if !ok {
-            return true // stop if no confidence field (backwards compat)
-        }
-        return int(confidence) >= threshold
-    }
-}
-
-// AllFieldsPresent stops when all required output fields are non-zero
-func AllFieldsPresent(fields []string) func(*domain.AgentOutput) bool {
-    return func(output *domain.AgentOutput) bool {
-        for _, field := range fields {
-            val, ok := output.Structured[field]
-            if !ok || val == nil || val == "" || val == 0 {
-                return false
-            }
-        }
-        return true
-    }
-}
-
-// SingleShot always stops after one turn (default for most agents)
-func SingleShot(_ *domain.AgentOutput) bool {
-    return true
-}
-```
-
-#### Default Refinement Prompts
-
-```go
-// internal/service/refinement.go
-
-// SelfCritiqueRefinement asks the agent to critique and improve its previous output
-func SelfCritiqueRefinement(turn int, prev *domain.AgentOutput) string {
-    return fmt.Sprintf(
-        "This is turn %d. Your previous output was:\n%s\n\n"+
-            "Review your reasoning for gaps, incorrect assumptions, or missing data. "+
-            "If you find issues, provide a corrected output. "+
-            "If your previous answer was sound, return it unchanged with higher confidence.",
-        turn, prev.Raw,
-    )
-}
-
-// SupplierDeepDiveRefinement asks the supplier agent to dig deeper
-func SupplierDeepDiveRefinement(turn int, prev *domain.AgentOutput) string {
-    suppliers, _ := prev.Structured["suppliers"].([]any)
-    return fmt.Sprintf(
-        "This is turn %d. You found %d suppliers. "+
-            "Search for additional suppliers using different search terms. "+
-            "Focus on verified wholesale distributors with published price lists.",
-        turn, len(suppliers),
-    )
-}
-```
-
-#### Updated Agent Registry
-
-```go
-// Agents that benefit from multi-turn reasoning
-var AgentRegistry = map[string]AgentDefinition{
-    "gating": {
-        // ... existing fields ...
-        MaxTurns:      1,              // single-shot: pass/fail is deterministic
-        CanSelfRefine: false,
-    },
-    "profitability": {
-        // ... existing fields ...
-        MaxTurns:      1,              // single-shot: fee calc is deterministic
-        CanSelfRefine: false,
-    },
-    "demand": {
-        // ... existing fields ...
-        MaxTurns:      2,              // can refine if BSR data seems inconsistent
-        CanSelfRefine: true,
-    },
-    "supplier": {
-        // ... existing fields ...
-        MaxTurns:      3,              // can search multiple times for better suppliers
-        CanSelfRefine: true,
-    },
-    "reviewer": {
-        // ... existing fields ...
-        MaxTurns:      2,              // can self-critique before final tier assignment
-        CanSelfRefine: true,
-    },
-}
-```
-
-### When to Use Multi-Turn vs Single-Shot
-
-| Agent | Turns | Rationale |
-|-------|-------|-----------|
-| Gating | 1 | Binary pass/fail based on restrictions data. No value in re-examination. |
-| Profitability | 1 | Deterministic fee calculation with qualitative overlay. Numbers don't change on retry. |
-| Demand | 2 | BSR and buy box data can be complex. Agent may catch inconsistencies on self-review. |
-| Supplier | 3 | Web search is inherently incomplete. Multiple search strategies yield better supplier coverage. |
-| Reviewer | 2 | Final scoring benefits from self-critique. Catches reasoning errors before tier assignment. |
-| Coordinator | 5 | Full orchestration loop: dispatch -> observe -> adjust -> dispatch -> finalize. |
-
-### Impact
-
-- Agents can self-correct when initial reasoning is flawed
-- Supplier agent finds more suppliers through iterative search (highest ROI for multi-turn)
-- Reviewer catches its own scoring errors before final tier assignment
-- Foundation for the coordinator pattern (which is inherently multi-turn)
-- Token cost increase is bounded by `MaxTurns` per agent definition
-
-### Key Files to Modify
-
-- `internal/domain/agent_definition.go` -- add `MaxTurns`, `CanSelfRefine`, `StopCondition`
-- `internal/service/` -- new `agent_loop.go`, `stop_conditions.go`, `refinement.go`
-- `internal/service/pipeline_orchestrator.go` -- use `RunAgentLoop` for multi-turn agents
-
----
-
 ## Implementation Roadmap
 
 ### Phase 1: Foundation (Weeks 1-2)
@@ -1331,9 +1057,9 @@ var AgentRegistry = map[string]AgentDefinition{
 
 **Verification:** Every pipeline run produces a complete task tree in the database. Dashboard shows per-agent duration, token usage, and failure rates.
 
-### Phase 3: Parallelism, Context, and Agent Loops (Weeks 5-7)
+### Phase 3: Parallelism and Context (Weeks 5-6)
 
-**Goal:** Faster pipelines, better data flow, self-correcting agents.
+**Goal:** Faster pipelines, better data flow.
 
 | Task | Pattern | Effort | Blocks |
 |------|---------|--------|--------|
@@ -1341,18 +1067,16 @@ var AgentRegistry = map[string]AgentDefinition{
 | Restructure Inngest steps for parallel execution | Pattern 3 | 2 days | None |
 | Replace `[]AgentContext` with typed `PipelineContext` | Pattern 4 | 3 days | Pattern 1 |
 | Deduplicate `RunPipeline` / `EvaluateCandidate` | -- | 1 day | Pattern 4 |
-| Implement `RunAgentLoop` with stop conditions | Pattern 8 | 3 days | Pattern 2 |
-| Add multi-turn to supplier (3 turns) and reviewer (2 turns) | Pattern 8 | 2 days | Pattern 8 core |
 
-**Verification:** Demand + supplier run in parallel. Per-candidate evaluation time reduced ~40%. Pipeline context is fully typed. Supplier agent finds more suppliers via iterative search. Reviewer self-critiques before final tier assignment.
+**Verification:** Demand + supplier run in parallel. Per-candidate evaluation time reduced ~40%. Pipeline context is fully typed.
 
-### Phase 4: Coordination (Weeks 8-11)
+### Phase 4: Coordination (Weeks 7-10)
 
 **Goal:** Adaptive pipeline behavior.
 
 | Task | Pattern | Effort | Blocks |
 |------|---------|--------|--------|
-| Implement reviewer re-evaluation loop | Pattern 6 Phase A | 3 days | Patterns 4, 8 |
+| Implement reviewer re-evaluation loop | Pattern 6 Phase A | 3 days | Pattern 4 |
 | Add `ReevaluationRequest` handling | Pattern 6 Phase A | 2 days | None |
 | Design coordinator system prompt | Pattern 6 Phase B | 3 days | All above |
 | Implement coordinator orchestration loop | Pattern 6 Phase B | 5 days | All above |
@@ -1363,17 +1087,14 @@ var AgentRegistry = map[string]AgentDefinition{
 
 ## Summary
 
-| Pattern | Source | Value | Effort | Phase |
-|---------|--------|-------|--------|-------|
-| 1. Typed Agent Definitions | Claude Code | High | Low | 1 |
-| 2. Task State Machine | Claude Code | High | Medium | 2 |
-| 3. Parallel Execution | Claude Code | High | Medium | 3 |
-| 4. Structured Context | Claude Code | Medium | Low | 3 |
-| 5. Per-Agent Tool Access | Claude Code | Medium | Low | 1 |
-| 6. Coordinator Hierarchy | Claude Code | High | High | 4 |
-| 7. Lifecycle Hooks | Claude Code | Medium | Low | 1 |
-| 8. Agent ReAct Loop | LangChain Harness | High | Medium | 3 |
-
-Phase 1 is the highest-leverage work: it fixes the critical silent-failure risk, enables per-agent model selection, creates the hook system that makes `ValidateAgentOutput` operational, and establishes the foundation for every subsequent phase. Pattern 8 (ReAct Loop) from the LangChain harness analysis fills the single biggest conceptual gap -- giving agents the ability to self-correct instead of committing to single-shot reasoning.
+| Pattern | Value | Effort | Phase |
+|---------|-------|--------|-------|
+| 1. Typed Agent Definitions | High | Low | 1 |
+| 2. Task State Machine | High | Medium | 2 |
+| 3. Parallel Execution | High | Medium | 3 |
+| 4. Structured Context | Medium | Low | 3 |
+| 5. Per-Agent Tool Access | Medium | Low | 1 |
+| 6. Coordinator Hierarchy | High | High | 4 |
+| 7. Lifecycle Hooks | Medium | Low | 1 |
 
 Phase 1 is the highest-leverage work: it fixes the critical silent-failure risk, enables per-agent model selection, creates the hook system that makes `ValidateAgentOutput` operational, and establishes the foundation for every subsequent phase.
