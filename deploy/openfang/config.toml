@@ -7,7 +7,7 @@ mode = "default"
 
 [default_model]
 provider = "anthropic"
-model = "claude-sonnet-4-6"
+model = "claude-sonnet-4-5-20250929"
 api_key_env = "ANTHROPIC_API_KEY"
 
 [[fallback_providers]]
