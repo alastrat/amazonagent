@@ -98,6 +98,12 @@ export function useChat(enabled: boolean) {
 
     es.onopen = () => {
       dispatch({ type: "CONNECTED" });
+      // Reload history on reconnect — catches messages received while SSE was down
+      apiClient.getChatHistory().then((data) => {
+        if (data.messages && data.messages.length > 0) {
+          dispatch({ type: "LOAD_HISTORY", messages: data.messages });
+        }
+      }).catch(() => {});
     };
 
     es.addEventListener("message", (e) => {

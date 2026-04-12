@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/middleware"
 	"github.com/pluriza/fba-agent-orchestrator/internal/api/response"
@@ -72,6 +73,10 @@ func (h *ChatHandler) Events(w http.ResponseWriter, r *http.Request) {
 	ch, unsub := h.hub.Subscribe(ac.TenantID)
 	defer unsub()
 
+	// Send keepalive pings every 15s to prevent browser/proxy timeout
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case evt, ok := <-ch:
@@ -80,6 +85,9 @@ func (h *ChatHandler) Events(w http.ResponseWriter, r *http.Request) {
 			}
 			data, _ := json.Marshal(evt)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, data)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
