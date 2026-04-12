@@ -32,7 +32,8 @@ type Config struct {
 	SPAPIMarketplace  string
 	SPAPISellerID     string
 
-	EncryptionKey string
+	EncryptionKey  string
+	AnthropicAPIKey string
 
 	ExaAPIKey        string
 	FirecrawlAPIKey  string
@@ -75,7 +76,8 @@ func Load() (*Config, error) {
 		SPAPIMarketplace:  getEnv("SP_API_MARKETPLACE_ID", "ATVPDKIKX0DER"),
 		SPAPISellerID:     getEnvAny("AMAZON_MERCHANT_TOKEN", "AMAZON_SELLER_ID", "SP_API_SELLER_ID"),
 
-		EncryptionKey: getEnvAny("ENCRYPTION_KEY", "CREDENTIAL_ENCRYPTION_KEY"),
+		EncryptionKey:   getEnvAny("ENCRYPTION_KEY", "CREDENTIAL_ENCRYPTION_KEY"),
+		AnthropicAPIKey: getEnv("ANTHROPIC_API_KEY", ""),
 
 		ExaAPIKey:        getEnv("EXA_API_KEY", ""),
 		FirecrawlAPIKey:  getEnv("FIRECRAWL_API_KEY", ""),

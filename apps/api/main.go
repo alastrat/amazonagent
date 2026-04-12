@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/claude"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/exa"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/firecrawl"
 	"github.com/pluriza/fba-agent-orchestrator/internal/adapter/inngest"
@@ -193,10 +194,21 @@ func main() {
 		}
 	}
 
-	// Chat service
+	// Chat service — use Claude API directly for agentic tool-calling concierge
 	chatRepo := postgres.NewChatRepo(pool)
 	chatHub := service.NewChatHub()
-	convRuntime, _ := agentRuntime.(port.ConversationalRuntime)
+	var convRuntime port.ConversationalRuntime
+	if cfg.AnthropicAPIKey != "" {
+		convRuntime = claude.NewAgentRuntime(cfg.AnthropicAPIKey, claude.ToolDeps{
+			ProductSearcher: spapiClient,
+			Profiles:        sellerProfileRepo,
+			Fingerprints:    eligibilityFPRepo,
+		})
+		slog.Info("chat: using Claude API with tool calling")
+	} else if cr, ok := agentRuntime.(port.ConversationalRuntime); ok {
+		convRuntime = cr
+		slog.Info("chat: using OpenFang conversational runtime")
+	}
 	chatSvc := service.NewChatService(chatRepo, convRuntime, chatHub, idGen, sellerProfileRepo, eligibilityFPRepo)
 
 	// Handlers
