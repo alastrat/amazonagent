@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useCopilotReadable } from "@copilotkit/react-core";
 import {
   useAssessmentStatus,
   useAssessmentGraph,
@@ -149,6 +150,29 @@ export default function OnboardingPage() {
   const rawTree: TreeNode | undefined = hasSSEData ? sse.tree : graphData?.tree;
   const liveProducts = hasSSEData ? sse.products : graphData?.products;
   const liveStats = hasSSEData ? sse.stats : graphData?.stats;
+
+  // ── Share context with CopilotKit ───────────────────────────────────
+  const assessmentContext = useMemo(
+    () => ({
+      eligible_products: liveStats?.eligible_products ?? 0,
+      ungatable_products: liveStats?.ungatable_products ?? 0,
+      restricted_products: liveStats?.restricted_products ?? 0,
+      categories_scanned: liveStats?.categories_scanned ?? 0,
+      open_brands: liveStats?.open_brands ?? 0,
+    }),
+    [liveStats],
+  );
+
+  useCopilotReadable({
+    description: "Current onboarding step",
+    value: step,
+  });
+
+  useCopilotReadable({
+    description:
+      "Assessment stats: eligible, ungatable, restricted product counts and categories scanned",
+    value: assessmentContext,
+  });
 
   // Auto-advance: SSE-driven (primary) or API fallback (page loaded after scan finished)
   useEffect(() => {

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChatPanel } from "@/components/chat-panel";
+import { CopilotSidebar } from "@copilotkit/react-ui";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -33,6 +33,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     localStorage.setItem("chat-panel-open", String(chatOpen));
   }, [chatOpen]);
 
+  const toggleChat = useCallback(() => {
+    setChatOpen((prev) => !prev);
+  }, []);
+
   return (
     <div className="flex h-screen">
       <aside className="flex w-56 flex-col border-r bg-muted/30">
@@ -59,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="border-t p-2">
           <button
-            onClick={() => setChatOpen((prev) => !prev)}
+            onClick={toggleChat}
             className={`w-full rounded-md px-3 py-2 text-sm font-medium text-left ${
               chatOpen
                 ? "bg-primary text-primary-foreground"
@@ -70,10 +74,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className={`flex-1 overflow-auto p-6 ${chatOpen ? "mr-[400px]" : ""}`}>
+      <main className="flex-1 overflow-auto p-6">
         {children}
       </main>
-      <ChatPanel isOpen={chatOpen} onToggle={() => setChatOpen(false)} />
+      <CopilotSidebar
+        defaultOpen={chatOpen}
+        onSetOpen={setChatOpen}
+        labels={{
+          title: "FBA Concierge",
+          placeholder: "Ask your concierge...",
+        }}
+        className="z-50"
+      />
     </div>
   );
 }

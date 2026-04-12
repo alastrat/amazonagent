@@ -28,6 +28,7 @@ type Handlers struct {
 	Suggestion    *handler.SuggestionHandler
 	SellerAccount *handler.SellerAccountHandler
 	Chat          *handler.ChatHandler
+	AGUI          *handler.AGUIHandler
 }
 
 func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.Mux {
@@ -110,6 +111,9 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Post("/chat/send", h.Chat.Send)
 		r.Get("/chat/events", h.Chat.Events)
 		r.Get("/chat/history", h.Chat.History)
+
+		r.Post("/api/copilotkit", h.AGUI.Run)
+		r.Get("/api/copilotkit/info", h.AGUI.Info)
 
 		r.Get("/settings", h.Settings.Get)
 		r.Put("/settings", h.Settings.Update)

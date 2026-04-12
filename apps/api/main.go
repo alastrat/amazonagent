@@ -197,19 +197,29 @@ func main() {
 	// Chat service — use Claude API directly for agentic tool-calling concierge
 	chatRepo := postgres.NewChatRepo(pool)
 	chatHub := service.NewChatHub()
+	toolDeps := claude.ToolDeps{
+		ProductSearcher: spapiClient,
+		Profiles:        sellerProfileRepo,
+		Fingerprints:    eligibilityFPRepo,
+	}
 	var convRuntime port.ConversationalRuntime
 	if cfg.AnthropicAPIKey != "" {
-		convRuntime = claude.NewAgentRuntime(cfg.AnthropicAPIKey, claude.ToolDeps{
-			ProductSearcher: spapiClient,
-			Profiles:        sellerProfileRepo,
-			Fingerprints:    eligibilityFPRepo,
-		})
+		convRuntime = claude.NewAgentRuntime(cfg.AnthropicAPIKey, toolDeps)
 		slog.Info("chat: using Claude API with tool calling")
 	} else if cr, ok := agentRuntime.(port.ConversationalRuntime); ok {
 		convRuntime = cr
 		slog.Info("chat: using OpenFang conversational runtime")
 	}
 	chatSvc := service.NewChatService(chatRepo, convRuntime, chatHub, idGen, sellerProfileRepo, eligibilityFPRepo)
+
+	// AG-UI handler — CopilotKit integration via SSE streaming
+	conciergeToolkit := claude.NewConciergeToolkit(toolDeps)
+	aguiHandler := handler.NewAGUIHandler(cfg.AnthropicAPIKey, conciergeToolkit, sellerProfileRepo, eligibilityFPRepo)
+	if cfg.AnthropicAPIKey != "" {
+		slog.Info("agui: CopilotKit AG-UI handler enabled")
+	} else {
+		slog.Warn("agui: CopilotKit AG-UI handler disabled (no ANTHROPIC_API_KEY)")
+	}
 
 	// Handlers
 	handlers := api.Handlers{
@@ -231,6 +241,7 @@ func main() {
 		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
 		SellerAccount:  handler.NewSellerAccountHandler(sellerAccountSvc),
 		Chat:           handler.NewChatHandler(chatSvc, chatHub),
+		AGUI:           aguiHandler,
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)

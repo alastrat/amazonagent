@@ -1,9 +1,12 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CopilotKit } from "@copilotkit/react-core";
+import "@copilotkit/react-ui/styles.css";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { CopilotToolRenderers } from "@/components/copilot-tools";
 import { AuthProvider, useAuth } from "@/lib/auth-provider";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -32,7 +35,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
-        <AuthGate>{children}</AuthGate>
+        <CopilotKit runtimeUrl="/api/copilotkit">
+          <CopilotToolRenderers />
+          <AuthGate>{children}</AuthGate>
+        </CopilotKit>
       </QueryClientProvider>
     </AuthProvider>
   );
