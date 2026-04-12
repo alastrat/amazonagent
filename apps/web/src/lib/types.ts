@@ -467,3 +467,23 @@ export interface DiscoveryConfig {
   last_run_at?: string;
   next_run_at?: string;
 }
+
+// --- Chat types ---
+
+export type ChatMessageRole = "user" | "assistant" | "system";
+
+export interface ChatMessage {
+  id: string;
+  tenant_id: string;
+  session_id: string;
+  role: ChatMessageRole;
+  content: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ChatEvent {
+  type: "message" | "typing" | "done" | "error" | "tool_call";
+  timestamp: string;
+  data: Record<string, unknown>;
+}

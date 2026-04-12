@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChatPanel } from "@/components/chat-panel";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -20,6 +22,17 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [chatOpen, setChatOpen] = useState(false);
+
+  // Persist chat panel state in localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("chat-panel-open");
+    if (saved === "true") setChatOpen(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("chat-panel-open", String(chatOpen));
+  }, [chatOpen]);
 
   return (
     <div className="flex h-screen">
@@ -45,8 +58,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        <div className="border-t p-2">
+          <button
+            onClick={() => setChatOpen((prev) => !prev)}
+            className={`w-full rounded-md px-3 py-2 text-sm font-medium text-left ${
+              chatOpen
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            {chatOpen ? "Close Concierge" : "Ask Concierge"}
+          </button>
+        </div>
       </aside>
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+      <main className={`flex-1 overflow-auto p-6 ${chatOpen ? "mr-[400px]" : ""}`}>
+        {children}
+      </main>
+      <ChatPanel isOpen={chatOpen} onToggle={() => setChatOpen(false)} />
     </div>
   );
 }

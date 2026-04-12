@@ -25,6 +25,7 @@ import type {
   AssessmentOutcome,
   TreeNode,
   ProductDetail,
+  ChatMessage,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -284,6 +285,19 @@ class ApiClient {
 
   getCreditTransactions() {
     return this.fetch<CreditTransaction[]>("/credits/transactions");
+  }
+
+  // --- Chat ---
+
+  sendChatMessage(message: string) {
+    return this.fetch<{ status: string }>("/chat/send", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
+  }
+
+  getChatHistory() {
+    return this.fetch<{ messages: ChatMessage[] }>("/chat/history");
   }
 }
 
