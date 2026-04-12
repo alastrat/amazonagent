@@ -41,16 +41,13 @@ func NewChatService(
 }
 
 // GetOrCreateSession returns the active session for a tenant, creating one if needed.
+// If the runtime lost the session (e.g. API restart), it re-creates the runtime session
+// and updates the DB record.
 func (s *ChatService) GetOrCreateSession(ctx context.Context, tenantID domain.TenantID) (*domain.ChatSession, error) {
-	session, err := s.repo.GetSession(ctx, tenantID)
-	if err == nil && session != nil && session.Status == domain.ChatSessionActive {
-		return session, nil
-	}
-
 	// Build concierge system prompt with tenant context
 	systemPrompt := s.buildSystemPrompt(ctx, tenantID)
 
-	// Start agent session
+	// Always ensure the runtime session exists (survives API restarts)
 	agentSessionID, err := s.runtime.StartSession(ctx, tenantID, port.SessionConfig{
 		AgentName:    "concierge",
 		SystemPrompt: systemPrompt,
@@ -60,6 +57,18 @@ func (s *ChatService) GetOrCreateSession(ctx context.Context, tenantID domain.Te
 		return nil, fmt.Errorf("start agent session: %w", err)
 	}
 
+	// Check for existing DB session
+	session, _ := s.repo.GetSession(ctx, tenantID)
+	if session != nil && session.Status == domain.ChatSessionActive {
+		// Update the runtime session ID in case it changed (API restart)
+		if session.AgentSessionID != agentSessionID {
+			session.AgentSessionID = agentSessionID
+			_ = s.repo.UpdateSession(ctx, session)
+		}
+		return session, nil
+	}
+
+	// Create new DB session
 	session = &domain.ChatSession{
 		ID:             s.idGen.New(),
 		TenantID:       tenantID,
