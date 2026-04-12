@@ -172,37 +172,89 @@ func (s *ChatService) GetHistory(ctx context.Context, tenantID domain.TenantID, 
 
 // buildSystemPrompt creates the concierge system prompt with tenant-specific context.
 func (s *ChatService) buildSystemPrompt(ctx context.Context, tenantID domain.TenantID) string {
-	prompt := `You are an FBA wholesale concierge. You help Amazon sellers find profitable products they can list and sell.
-
-You have access to the following tools:
-- search_products(keywords, category): Search Amazon for products
-- check_eligibility(asin): Check if the seller can list this product
-- get_pricing(asin): Get current pricing and seller count
-- get_strategy(): Get the seller's current strategy and goals
-- query_catalog(filters): Search the shared product catalog
-- create_suggestion(asin, reason): Propose a product for the seller to consider
+	prompt := `You are an FBA wholesale concierge for an Amazon seller. You help them find profitable products they can list and sell on Amazon via wholesale/arbitrage.
 
 Guidelines:
-- Be concise and actionable
-- When suggesting products, include: ASIN, price, estimated margin, seller count, eligibility status
-- For ungatable products, mention they can request approval via Seller Central
-- Never auto-execute critical actions (listings, pricing) — always ask for confirmation
-- If asked about something outside FBA wholesale, politely redirect
+- Be concise and actionable — this is a seller who wants to make money, not read essays
+- When discussing products, always reference ASIN, price, estimated margin, and eligibility status
+- For "ungatable" products (status: can apply), tell them they can request approval via Seller Central
+- Provide the Seller Central approval URL when available
+- Prioritize high-margin, low-competition products
+- Never auto-execute critical actions — always ask for confirmation
+- Base your answers on the seller's ACTUAL DATA below, not general knowledge
 `
 
-	// Inject tenant context
+	// Inject seller profile
 	profile, err := s.profiles.Get(ctx, tenantID)
 	if err == nil && profile != nil {
-		prompt += fmt.Sprintf("\nSeller archetype: %s\n", profile.Archetype)
+		prompt += fmt.Sprintf("\n## Seller Profile\nArchetype: %s\n", profile.Archetype)
 	}
 
+	// Inject assessment results with real product data
 	fp, err := s.fingerprints.Get(ctx, tenantID)
 	if err == nil && fp != nil {
-		prompt += fmt.Sprintf("Eligible categories: %d scanned, %.0f%% open rate\n",
-			fp.TotalProbes, fp.OverallOpenRate)
-		prompt += fmt.Sprintf("Total eligible: %d, Total restricted: %d\n",
-			fp.TotalEligible, fp.TotalRestricted)
+		prompt += fmt.Sprintf("\n## Assessment Summary\n")
+		prompt += fmt.Sprintf("- Products scanned: %d\n", fp.TotalProbes)
+		prompt += fmt.Sprintf("- Overall open rate: %.0f%%\n", fp.OverallOpenRate)
+		prompt += fmt.Sprintf("- Total eligible: %d\n", fp.TotalEligible)
+		prompt += fmt.Sprintf("- Total restricted: %d\n", fp.TotalRestricted)
+
+		// Category breakdown
+		if len(fp.Categories) > 0 {
+			prompt += "\n## Categories Scanned\n"
+			for _, cat := range fp.Categories {
+				prompt += fmt.Sprintf("- %s: %d probed, %d open, %.0f%% open rate\n",
+					cat.Category, cat.ProbeCount, cat.OpenCount, cat.OpenRate)
+			}
+		}
+
+		// Product details — eligible and ungatable
+		if len(fp.BrandResults) > 0 {
+			eligible := []domain.BrandProbeResult{}
+			ungatable := []domain.BrandProbeResult{}
+			restricted := []domain.BrandProbeResult{}
+
+			for _, br := range fp.BrandResults {
+				switch br.EligibilityStatus {
+				case "eligible":
+					eligible = append(eligible, br)
+				case "ungatable":
+					ungatable = append(ungatable, br)
+				default:
+					restricted = append(restricted, br)
+				}
+			}
+
+			if len(eligible) > 0 {
+				prompt += fmt.Sprintf("\n## Eligible Products (%d) — Can list immediately\n", len(eligible))
+				for _, p := range eligible {
+					prompt += fmt.Sprintf("- ASIN: %s | %s | Brand: %s | Category: %s > %s | Price: $%.2f | Est. Margin: %.1f%% | Sellers: %d\n",
+						p.ASIN, truncate(p.Title, 50), p.Brand, p.Category, p.Subcategory, p.Price, p.EstMarginPct, p.SellerCount)
+				}
+			}
+
+			if len(ungatable) > 0 {
+				prompt += fmt.Sprintf("\n## Ungatable Products (%d) — Can apply for approval\n", len(ungatable))
+				for _, p := range ungatable {
+					approvalNote := ""
+					if p.ApprovalURL != "" {
+						approvalNote = fmt.Sprintf(" | Approval URL: %s", p.ApprovalURL)
+					}
+					prompt += fmt.Sprintf("- ASIN: %s | %s | Brand: %s | Category: %s > %s | Price: $%.2f | Est. Margin: %.1f%%%s\n",
+						p.ASIN, truncate(p.Title, 50), p.Brand, p.Category, p.Subcategory, p.Price, p.EstMarginPct, approvalNote)
+				}
+			}
+
+			prompt += fmt.Sprintf("\n## Restricted Products: %d (truly blocked, no approval path)\n", len(restricted))
+		}
 	}
 
 	return prompt
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
