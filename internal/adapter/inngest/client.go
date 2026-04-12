@@ -899,14 +899,12 @@ func NewDurableRuntime(
 	}
 
 	// =========================================================
-	// Function 7: run-assessment (eligibility scan + strategy generation)
-	// Triggered when a seller starts onboarding
+	// Function 7: run-assessment (discovery assessment with circuit breakers)
+	// Triggered when a seller starts onboarding.
+	// Uses per-tenant SP-API client, NOT the global one.
 	// =========================================================
 	type AssessmentRequestedEvent struct {
-		TenantID       string  `json:"tenant_id"`
-		AccountAgeDays int     `json:"account_age_days"`
-		ActiveListings int     `json:"active_listings"`
-		StatedCapital  float64 `json:"stated_capital"`
+		TenantID string `json:"tenant_id"`
 	}
 
 	if assessmentSvc != nil {
@@ -920,26 +918,38 @@ func NewDurableRuntime(
 
 				slog.Info("inngest[run-assessment]: started", "tenant_id", data.TenantID)
 
-				// Step 1: Run eligibility scan with static calibration probes
-				fpJSON, err := step.Run(ctx, "scan-eligibility", func(ctx context.Context) (string, error) {
-					probes := service.StaticCalibrationProbes()
-					fp, err := assessmentSvc.RunEligibilityScan(ctx, tenantID, probes)
+				// Step 1: Validate credentials — build per-tenant SP-API client
+				// TODO(Phase A): Replace shared productSearcher with per-tenant client
+				// via credentialSvc.GetSPAPIClient(ctx, tenantID). Currently uses the
+				// shared singleton which has the seller's credentials from env vars.
+				tenantSPAPI := productSearcher
+
+				if tenantSPAPI == nil {
+					slog.Error("inngest[run-assessment]: no SP-API client available", "tenant_id", data.TenantID)
+					if err := assessmentSvc.FailAssessment(ctx, tenantID); err != nil {
+						slog.Error("inngest[run-assessment]: FailAssessment also failed", "error", err)
+					}
+					return map[string]string{"status": "failed", "error": "no SP-API client"}, nil
+				}
+
+				// Step 2: Run discovery assessment (search + eligibility + evaluate + build outcome)
+				outcomeJSON, err := step.Run(ctx, "search-categories", func(ctx context.Context) (string, error) {
+					outcome, err := assessmentSvc.RunDiscoveryAssessment(ctx, tenantID, tenantSPAPI, "" /* marketplace — defaults to US */)
 					if err != nil {
 						return "", err
 					}
-					if fp == nil {
-						return "{}", nil
-					}
-					b, _ := json.Marshal(fp)
+					b, _ := json.Marshal(outcome)
 					return string(b), nil
 				})
 				if err != nil {
-					slog.Error("inngest[run-assessment]: scan failed", "tenant_id", data.TenantID, "error", err)
-					assessmentSvc.FailAssessment(ctx, tenantID)
+					slog.Error("inngest[run-assessment]: discovery failed", "tenant_id", data.TenantID, "error", err)
+					if fErr := assessmentSvc.FailAssessment(ctx, tenantID); fErr != nil {
+						slog.Error("inngest[run-assessment]: FailAssessment also failed", "error", fErr)
+					}
 					return map[string]string{"status": "failed", "error": err.Error()}, nil
 				}
 
-				// Step 2: Complete assessment
+				// Step 3: Complete assessment
 				_, err = step.Run(ctx, "complete-assessment", func(ctx context.Context) (string, error) {
 					return "done", assessmentSvc.CompleteAssessment(ctx, tenantID)
 				})
@@ -948,14 +958,19 @@ func NewDurableRuntime(
 					return nil, err
 				}
 
-				// Step 3: Generate initial strategy from fingerprint
+				// Step 4: Generate strategy from real discovery data
 				if strategySvc != nil {
-					step.Run(ctx, "generate-strategy", func(ctx context.Context) (string, error) {
-						var fp domain.EligibilityFingerprint
-						json.Unmarshal([]byte(fpJSON), &fp)
+					step.Run(ctx, "build-strategy", func(ctx context.Context) (string, error) {
+						fp, err := assessmentSvc.GetFingerprint(ctx, tenantID)
+						if err != nil || fp == nil {
+							slog.Warn("inngest[run-assessment]: no fingerprint for strategy", "error", err)
+							return "", nil
+						}
 
-						archetype := domain.ClassifyArchetype(data.AccountAgeDays, data.ActiveListings, data.StatedCapital)
-						sv, err := strategySvc.GenerateInitialStrategy(ctx, tenantID, &fp, archetype)
+						// Post-assessment archetype classification defaults to greenhorn
+						// until we have SP-API account data to infer from
+						archetype := domain.SellerArchetypeGreenhorn
+						sv, err := strategySvc.GenerateInitialStrategy(ctx, tenantID, fp, archetype)
 						if err != nil {
 							slog.Error("inngest[run-assessment]: strategy generation failed", "tenant_id", data.TenantID, "error", err)
 							return "", err
@@ -969,7 +984,7 @@ func NewDurableRuntime(
 				}
 
 				slog.Info("inngest[run-assessment]: completed", "tenant_id", data.TenantID)
-				return map[string]string{"status": "completed"}, nil
+				return map[string]string{"status": "completed", "outcome": outcomeJSON}, nil
 			},
 		)
 	}
@@ -978,14 +993,11 @@ func NewDurableRuntime(
 }
 
 // TriggerAssessment sends an assessment/requested event.
-func (r *DurableRuntime) TriggerAssessment(ctx context.Context, tenantID domain.TenantID, accountAgeDays int, activeListings int, statedCapital float64) error {
+func (r *DurableRuntime) TriggerAssessment(ctx context.Context, tenantID domain.TenantID) error {
 	_, err := r.client.Send(ctx, inngestgo.Event{
 		Name: "assessment/requested",
 		Data: map[string]any{
-			"tenant_id":        string(tenantID),
-			"account_age_days": accountAgeDays,
-			"active_listings":  activeListings,
-			"stated_capital":   statedCapital,
+			"tenant_id": string(tenantID),
 		},
 	})
 	return err

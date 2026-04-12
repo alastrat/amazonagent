@@ -43,6 +43,13 @@ func NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID strin
 	}
 }
 
+// NewClientFromCredentials constructs a per-tenant SP-API client from explicit credentials.
+// This is the same as NewClient but named to clarify it takes stored (decrypted) credentials
+// rather than config/env vars.
+func NewClientFromCredentials(clientID, clientSecret, refreshToken, marketplace, sellerID string) *Client {
+	return NewClient(clientID, clientSecret, refreshToken, marketplace, sellerID)
+}
+
 func (c *Client) IsConfigured() bool {
 	return c.clientID != "" && c.clientSecret != "" && c.refreshToken != ""
 }
@@ -182,6 +189,9 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 			if s, ok := summaries[0].(map[string]any); ok {
 				p.Title, _ = s["itemName"].(string)
 				p.Brand, _ = s["brandName"].(string)
+				if p.Brand == "" {
+					p.Brand, _ = s["brand"].(string)
+				}
 				// itemClassification can be string or object
 				switch cls := s["itemClassification"].(type) {
 				case string:
@@ -190,6 +200,11 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 					p.Category, _ = cls["displayName"].(string)
 				}
 			}
+		}
+
+		// Log brand extraction for diagnostic
+		if p.Brand != "" {
+			slog.Debug("sp-api: brand found", "asin", p.ASIN, "brand", p.Brand)
 		}
 
 		// Parse sales ranks
@@ -235,7 +250,14 @@ func (c *Client) SearchProducts(ctx context.Context, keywords []string, marketpl
 	// Enrich with pricing data from competitive pricing API (for products still missing price)
 	c.enrichPricing(ctx, products, marketplace)
 
-	slog.Info("sp-api: search complete", "keywords", keywords, "results", len(products))
+	// Count brands found
+	brandsFound := 0
+	for _, p := range products {
+		if p.Brand != "" {
+			brandsFound++
+		}
+	}
+	slog.Info("sp-api: search complete", "keywords", keywords, "results", len(products), "with_brand", brandsFound)
 	return products, nil
 }
 
@@ -288,6 +310,9 @@ func (c *Client) SearchByBrowseNode(ctx context.Context, nodeID string, marketpl
 			if s, ok := summaries[0].(map[string]any); ok {
 				p.Title, _ = s["itemName"].(string)
 				p.Brand, _ = s["brandName"].(string)
+				if p.Brand == "" {
+					p.Brand, _ = s["brand"].(string)
+				}
 				switch cls := s["itemClassification"].(type) {
 				case string:
 					p.Category = cls
@@ -519,7 +544,7 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 		// No seller ID — can't check, assume all allowed
 		var results []port.ListingRestriction
 		for _, asin := range asins {
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true, Status: port.EligibilityEligible})
 		}
 		return results, nil
 	}
@@ -532,7 +557,7 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 		resp, err := c.apiRequestWithRL(ctx, "GET", endpoint, nil, "listing_restrictions")
 		if err != nil {
 			slog.Warn("sp-api: eligibility check failed", "asin", asin, "error", err)
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true}) // fail open
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true, Status: port.EligibilityEligible}) // fail open
 			continue
 		}
 
@@ -542,24 +567,68 @@ func (c *Client) CheckListingEligibility(ctx context.Context, asins []string, ma
 
 		restrictions, _ := raw["restrictions"].([]any)
 		if len(restrictions) == 0 {
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true})
+			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: true, Status: port.EligibilityEligible})
 			slog.Debug("sp-api: eligible", "asin", asin)
 		} else {
-			// Extract reason
 			reason := "Restricted"
-			if r, ok := restrictions[0].(map[string]any); ok {
-				if reasons, ok := r["reasons"].([]any); ok {
-					for _, rr := range reasons {
-						if rm, ok := rr.(map[string]any); ok {
-							if msg, ok := rm["message"].(string); ok && msg != "" {
-								reason = msg
+			reasonCode := ""
+			approvalURL := ""
+			status := port.EligibilityRestricted
+
+			// Log raw response for debugging eligibility classification
+			if rawJSON, err := json.Marshal(raw); err == nil {
+				slog.Debug("sp-api: raw restrictions response", "asin", asin, "raw", string(rawJSON))
+			}
+
+			// Check ALL restriction objects (not just the first) — SP-API returns
+			// one per condition type, and our conditionType=new_new might not be first.
+			for _, restriction := range restrictions {
+				r, ok := restriction.(map[string]any)
+				if !ok {
+					continue
+				}
+				reasons, ok := r["reasons"].([]any)
+				if !ok {
+					continue
+				}
+				for _, rr := range reasons {
+					rm, ok := rr.(map[string]any)
+					if !ok {
+						continue
+					}
+					if msg, ok := rm["message"].(string); ok && msg != "" {
+						reason = msg
+					}
+					if rc, ok := rm["reasonCode"].(string); ok && rc != "" {
+						reasonCode = rc
+					}
+					// Check for approval links
+					if links, ok := rm["links"].([]any); ok {
+						for _, l := range links {
+							if lm, ok := l.(map[string]any); ok {
+								if res, ok := lm["resource"].(string); ok && res != "" {
+									approvalURL = res
+								}
 							}
 						}
 					}
 				}
 			}
-			results = append(results, port.ListingRestriction{ASIN: asin, Allowed: false, Reason: reason})
-			slog.Info("sp-api: not eligible", "asin", asin, "reason", reason)
+
+			// Classify: APPROVAL_REQUIRED or has approval link = ungatable
+			if reasonCode == "APPROVAL_REQUIRED" || approvalURL != "" {
+				status = port.EligibilityUngatable
+			}
+
+			results = append(results, port.ListingRestriction{
+				ASIN:        asin,
+				Allowed:     false,
+				Reason:      reason,
+				ReasonCode:  reasonCode,
+				ApprovalURL: approvalURL,
+				Status:      status,
+			})
+			slog.Info("sp-api: not eligible", "asin", asin, "reason", reason, "reasonCode", reasonCode, "status", status, "approvalURL", approvalURL)
 		}
 	}
 
@@ -599,6 +668,31 @@ func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, i
 		resp.Body.Close()
 
 		items, _ := raw["items"].([]any)
+
+		// Diagnostic: log brand availability from identifier lookup
+		if len(items) > 0 {
+			brandsFound := 0
+			for _, ri := range items {
+				if itm, ok := ri.(map[string]any); ok {
+					if sums, ok := itm["summaries"].([]any); ok && len(sums) > 0 {
+						if s, ok := sums[0].(map[string]any); ok {
+							if b, _ := s["brandName"].(string); b != "" {
+								brandsFound++
+							}
+						}
+					}
+				}
+			}
+			slog.Info("sp-api: identifier lookup brand check", "total", len(items), "with_brand", brandsFound)
+			// Log first item's raw summaries for debugging
+			if first, ok := items[0].(map[string]any); ok {
+				if sums, ok := first["summaries"].([]any); ok && len(sums) > 0 {
+					sumJSON, _ := json.Marshal(sums[0])
+					slog.Info("sp-api: first item summaries", "raw", string(sumJSON))
+				}
+			}
+		}
+
 		for _, rawItem := range items {
 			item, ok := rawItem.(map[string]any)
 			if !ok {
@@ -614,7 +708,11 @@ func (c *Client) LookupByIdentifier(ctx context.Context, identifiers []string, i
 			if summaries, ok := item["summaries"].([]any); ok && len(summaries) > 0 {
 				if s, ok := summaries[0].(map[string]any); ok {
 					p.Title, _ = s["itemName"].(string)
+					// SP-API uses "brandName" in keyword search but "brand" in identifier lookup
 					p.Brand, _ = s["brandName"].(string)
+					if p.Brand == "" {
+						p.Brand, _ = s["brand"].(string)
+					}
 				}
 			}
 

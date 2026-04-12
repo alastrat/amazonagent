@@ -3,15 +3,44 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
+import type { ConnectSellerAccountRequest } from "@/lib/types";
+
+export function useConnectSellerAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (credentials: ConnectSellerAccountRequest) =>
+      apiClient.connectSellerAccount(credentials),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.sellerAccount });
+    },
+  });
+}
+
+export function useSellerAccount() {
+  return useQuery({
+    queryKey: queryKeys.sellerAccount,
+    queryFn: () => apiClient.getSellerAccount(),
+  });
+}
+
+export function useDisconnectSellerAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiClient.disconnectSellerAccount(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.sellerAccount });
+    },
+  });
+}
 
 export function useStartAssessment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { account_age_days: number; active_listings: number; stated_capital: number }) =>
-      apiClient.startAssessment(data),
+    mutationFn: () => apiClient.startAssessment(),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.assessment.status });
       qc.invalidateQueries({ queryKey: queryKeys.assessment.profile });
+      qc.invalidateQueries({ queryKey: queryKeys.assessment.graph });
     },
   });
 }
@@ -24,6 +53,18 @@ export function useAssessmentStatus(isPolling: boolean) {
       const status = query.state.data?.status;
       if (status === "completed" || status === "failed") return false;
       return isPolling ? 2000 : false;
+    },
+  });
+}
+
+export function useAssessmentGraph(isPolling: boolean) {
+  return useQuery({
+    queryKey: queryKeys.assessment.graph,
+    queryFn: () => apiClient.getAssessmentGraph(),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === "completed" || status === "failed") return false;
+      return isPolling ? 30000 : false; // 30s refresh during scanning
     },
   });
 }

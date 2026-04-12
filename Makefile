@@ -1,4 +1,12 @@
-.PHONY: dev test build migrate lint docker-up docker-down up down logs
+.PHONY: dev test build migrate lint docker-up docker-down up down logs start stop
+
+# Start all services (Postgres:5433, Inngest:8290, API:8081, Frontend:3001)
+start:
+	./scripts/start.sh
+
+# Stop all services
+stop:
+	./scripts/stop.sh
 
 # Run everything via Docker (postgres + inngest + api + web)
 up:
@@ -54,3 +62,45 @@ web-install:
 
 web-build:
 	cd apps/web && npm run build
+
+# Playwright E2E tests (auto-starts Next.js dev server)
+test-playwright:
+	cd apps/web && npx playwright test --reporter=list
+
+# Playwright E2E — onboarding only
+test-playwright-onboarding:
+	cd apps/web && npx playwright test tests/e2e/onboarding.spec.ts --reporter=list
+
+# Playwright E2E — with browser UI (interactive)
+test-playwright-ui:
+	cd apps/web && npx playwright test --ui
+
+# Install Playwright browsers (run once)
+playwright-install:
+	cd apps/web && npx playwright install chromium
+
+# Deploy frontend to Cloudflare
+web-deploy:
+	cd apps/web && NEXT_PUBLIC_API_URL=https://amazonagent-production.up.railway.app npm run deploy
+
+# Reset and restart assessment (requires API running on 8081)
+assess:
+	@curl -s -X DELETE "http://localhost:8081/assessment/reset" -H "Authorization: Bearer dev-user-dev-tenant"
+	@sleep 1
+	@curl -s -X POST "http://localhost:8081/assessment/start" -H "Authorization: Bearer dev-user-dev-tenant" -H "Content-Type: application/json" -d '{}'
+	@echo ""
+	@echo "Assessment started. Open http://localhost:3001/onboarding"
+
+# Start everything locally for manual testing
+local:
+	@echo "Starting local dev environment..."
+	@echo "1. Starting Docker (postgres + inngest)..."
+	docker compose up -d postgres inngest
+	@echo "2. Waiting for postgres to be healthy..."
+	@sleep 5
+	@echo "3. Start the API in another terminal: PORT=8081 make dev"
+	@echo "4. Start the frontend in another terminal: make web-dev"
+	@echo ""
+	@echo "Frontend: http://localhost:3000"
+	@echo "API:      http://localhost:8081"
+	@echo "Inngest:  http://localhost:8290"

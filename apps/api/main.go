@@ -113,6 +113,15 @@ func main() {
 	categoryScanSvc := service.NewCategoryScanService(browseNodeRepo, catalogSvc, funnelSvc, spapiClient, scanJobRepo, idGen)
 	brandIntelRepo := postgres.NewBrandIntelligenceRepo(pool)
 
+	// Encryption + seller accounts
+	encryptor, err := domain.NewAESEncryptor(cfg.EncryptionKey)
+	if err != nil {
+		slog.Error("failed to create encryptor", "error", err)
+		os.Exit(1)
+	}
+	sellerAccountRepo := postgres.NewAmazonSellerAccountRepo(pool, encryptor)
+	sellerAccountSvc := service.NewSellerAccountService(sellerAccountRepo, idGen)
+
 	// Shared catalog + credit system
 	sharedCatalogRepo := postgres.NewSharedCatalogRepo(pool)
 	brandCatalogRepo := postgres.NewBrandCatalogRepo(pool)
@@ -126,7 +135,8 @@ func main() {
 	// Assessment service
 	sellerProfileRepo := postgres.NewSellerProfileRepo(pool)
 	eligibilityFPRepo := postgres.NewEligibilityFingerprintRepo(pool)
-	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, spapiClient, sharedCatalogSvc, idGen)
+	assessmentHub := service.NewAssessmentHub()
+	assessmentSvc := service.NewAssessmentService(sellerProfileRepo, eligibilityFPRepo, sharedCatalogSvc, funnelSvc, idGen, assessmentHub)
 	strategyVersionRepo := postgres.NewStrategyVersionRepo(pool)
 	strategySvc := service.NewStrategyService(strategyVersionRepo, idGen)
 	suggestionRepo := postgres.NewSuggestionRepo(pool)
@@ -166,6 +176,23 @@ func main() {
 	}
 	creditSvc.EnsureAccount(ctx, defaultTenantID, domain.CreditTierFree)
 
+	// Seed test tenant's seller account from env vars if not already connected
+	if cfg.SPAPIClientID != "" && cfg.SPAPIRefreshToken != "" {
+		if _, err := sellerAccountSvc.GetAccount(ctx, defaultTenantID); err != nil {
+			slog.Info("seeding test tenant seller account from env vars")
+			_, seedErr := sellerAccountSvc.ConnectAccount(ctx, defaultTenantID, service.ConnectAccountInput{
+				SPAPIClientID:     cfg.SPAPIClientID,
+				SPAPIClientSecret: cfg.SPAPIClientSecret,
+				SPAPIRefreshToken: cfg.SPAPIRefreshToken,
+				SellerID:          cfg.SPAPISellerID,
+				MarketplaceID:     cfg.SPAPIMarketplace,
+			})
+			if seedErr != nil {
+				slog.Warn("failed to seed test seller account", "error", seedErr)
+			}
+		}
+	}
+
 	// Handlers
 	handlers := api.Handlers{
 		Health:         handler.NewHealthHandler(),
@@ -181,9 +208,10 @@ func main() {
 		Scan:           handler.NewScanHandler(durableRuntime),
 		Catalog:        handler.NewCatalogHandler(discoveredProductRepo, brandIntelRepo),
 		Credit:         handler.NewCreditHandler(creditSvc),
-		Assessment:     handler.NewAssessmentHandler(assessmentSvc, durableRuntime),
+		Assessment:     handler.NewAssessmentHandler(assessmentSvc, durableRuntime, assessmentHub),
 		Strategy:       handler.NewStrategyHandler(strategySvc),
 		Suggestion:     handler.NewSuggestionHandler(discoveryQueueSvc),
+		SellerAccount:  handler.NewSellerAccountHandler(sellerAccountSvc),
 	}
 
 	router := api.NewRouter(handlers, authProvider, idGen)

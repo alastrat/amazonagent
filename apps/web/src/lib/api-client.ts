@@ -19,6 +19,12 @@ import type {
   DiscoverySuggestion,
   CreditAccount,
   CreditTransaction,
+  AmazonSellerAccount,
+  ConnectSellerAccountRequest,
+  AssessmentGraphStats,
+  AssessmentOutcome,
+  TreeNode,
+  ProductDetail,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -28,6 +34,10 @@ class ApiClient {
 
   setToken(token: string) {
     this.token = token;
+  }
+
+  getToken(): string | null {
+    return this.token;
   }
 
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -178,12 +188,31 @@ class ApiClient {
     return this.fetch<ScanJob>(`/scans/${id}`);
   }
 
+  // --- Seller Account ---
+
+  connectSellerAccount(credentials: ConnectSellerAccountRequest) {
+    return this.fetch<AmazonSellerAccount>("/seller-account/connect", {
+      method: "POST",
+      body: JSON.stringify(credentials),
+    });
+  }
+
+  getSellerAccount() {
+    return this.fetch<AmazonSellerAccount>("/seller-account");
+  }
+
+  disconnectSellerAccount() {
+    return this.fetch<{ status: string }>("/seller-account/disconnect", {
+      method: "DELETE",
+    });
+  }
+
   // --- Assessment ---
 
-  startAssessment(data: { account_age_days: number; active_listings: number; stated_capital: number }) {
+  startAssessment(data?: { account_age_days?: number; active_listings?: number; stated_capital?: number }) {
     return this.fetch<SellerProfile>("/assessment/start", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify(data ?? {}),
     });
   }
 
@@ -193,6 +222,10 @@ class ApiClient {
 
   getAssessmentProfile() {
     return this.fetch<{ profile: SellerProfile; fingerprint: EligibilityFingerprint }>("/assessment/profile");
+  }
+
+  getAssessmentGraph() {
+    return this.fetch<{ tree: TreeNode; status: string; outcome?: AssessmentOutcome; stats?: AssessmentGraphStats; products?: ProductDetail[] }>("/assessment/graph");
   }
 
   // --- Strategy ---

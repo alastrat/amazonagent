@@ -15,6 +15,12 @@ func Auth(provider port.AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			header := r.Header.Get("Authorization")
+			// Fallback: allow token via query param (needed for EventSource/SSE)
+			if header == "" {
+				if qToken := r.URL.Query().Get("token"); qToken != "" {
+					header = "Bearer " + qToken
+				}
+			}
 			if header == "" {
 				response.Error(w, http.StatusUnauthorized, "missing authorization header")
 				return
