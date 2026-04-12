@@ -50,8 +50,13 @@ if [ "$PG_READY" = false ]; then
   exit 1
 fi
 
+# --- 1b. OpenFang ---
+echo -e "${GREEN}[1b/5] Starting OpenFang on port 4200...${NC}"
+docker compose --profile openfang up -d openfang 2>/dev/null
+echo -e "     ${GREEN}OpenFang starting (port 4200).${NC}"
+
 # --- 2. Inngest (pointing to host API) ---
-echo -e "${GREEN}[2/4] Starting Inngest on port 8290...${NC}"
+echo -e "${GREEN}[2/5] Starting Inngest on port 8290...${NC}"
 docker run -d --name inngest-local -p 8290:8288 \
   -e INNGEST_DEV=1 \
   inngest/inngest:latest \
@@ -68,8 +73,7 @@ export INNGEST_DEV=true
 export INNGEST_EVENT_KEY=test
 export INNGEST_SIGNING_KEY=""
 export INNGEST_SERVE_HOST="http://host.docker.internal:8081"
-# Use OPENFANG_API_URL from .env if set, otherwise fall back to simulator
-export OPENFANG_API_URL="${OPENFANG_API_URL:-}"
+export OPENFANG_API_URL="http://localhost:4200"
 go run ./apps/api/main.go > /tmp/fba-api.log 2>&1 &
 API_PID=$!
 echo "$API_PID" > /tmp/fba-api.pid
