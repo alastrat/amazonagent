@@ -77,7 +77,7 @@ const runtime = new CopilotRuntime({
 });
 
 const serviceAdapter = new AnthropicAdapter({
-  model: "claude-sonnet-4-5",
+  model: "claude-sonnet-4-6",
 });
 
 export const POST = async (req: NextRequest) => {
