@@ -80,6 +80,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CopilotSidebar
         defaultOpen={chatOpen}
         onSetOpen={setChatOpen}
+        instructions={
+          "You are an FBA wholesale concierge for an Amazon seller. " +
+          "You MUST use your tools to answer questions — never respond from memory or general knowledge. " +
+          "Available tools: get_assessment_summary, get_eligible_products, get_ungatable_products, get_seller_profile. " +
+          "When the user asks about products, eligibility, or their account, ALWAYS call the relevant tool first, then respond with the real data. " +
+          "Be concise and action-oriented. Show ASINs, prices, margins, and approval URLs when available."
+        }
         labels={{
           title: "FBA Concierge",
           placeholder: "Ask your concierge...",
