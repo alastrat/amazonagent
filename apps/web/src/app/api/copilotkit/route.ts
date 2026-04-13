@@ -3,6 +3,7 @@ import {
   AnthropicAdapter,
   copilotRuntimeNextJSAppRouterEndpoint,
 } from "@copilotkit/runtime";
+import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -76,7 +77,13 @@ const runtime = new CopilotRuntime({
   ],
 });
 
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  baseURL: "https://api.anthropic.com/v1",
+});
+
 const serviceAdapter = new AnthropicAdapter({
+  anthropic,
   model: "claude-sonnet-4-6",
 });
 
