@@ -1,14 +1,18 @@
 "use client";
 
-import { useCopilotAction } from "@copilotkit/react-core";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-
 /**
- * Registers CopilotKit tool renderers for the FBA Concierge agent tools.
- * Mount this component once inside the CopilotKit provider.
+ * CopilotKit tool renderers for the FBA Concierge.
+ *
+ * Backend tools (get_eligible_products, check_eligibility, etc.) are executed
+ * by the Go backend via the AG-UI protocol. Their results are returned as text
+ * in the SSE stream and rendered as markdown by CopilotKit.
+ *
+ * This component is a placeholder for future frontend-only actions
+ * (e.g., UI interactions, chart rendering, approval buttons).
  */
 export function CopilotToolRenderers() {
+  return <></>;
+}
   // ── get_assessment_summary ────────────────────────────────────────────
   useCopilotAction({
     name: "get_assessment_summary",
