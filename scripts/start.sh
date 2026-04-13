@@ -95,9 +95,9 @@ fi
 # --- 4. Next.js Frontend ---
 echo -e "${GREEN}[4/4] Starting Next.js on port 3001...${NC}"
 cd apps/web
-# Source .env for ANTHROPIC_API_KEY (needed by CopilotKit runtime)
-set -a; source "$PROJECT_DIR/.env" 2>/dev/null; set +a
-NEXT_PUBLIC_API_URL=http://localhost:8081 npx next dev --port 3001 > /tmp/fba-web.log 2>&1 &
+# Pass ANTHROPIC_API_KEY to Next.js (needed by CopilotKit runtime)
+ANTHROPIC_KEY=$(grep "^ANTHROPIC_API_KEY=" "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2-)
+ANTHROPIC_API_KEY="$ANTHROPIC_KEY" NEXT_PUBLIC_API_URL=http://localhost:8081 npx next dev --port 3001 > /tmp/fba-web.log 2>&1 &
 WEB_PID=$!
 echo "$WEB_PID" > /tmp/fba-web.pid
 cd "$PROJECT_DIR"
