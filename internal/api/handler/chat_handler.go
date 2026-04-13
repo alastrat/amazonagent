@@ -95,6 +95,33 @@ func (h *ChatHandler) Events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Save handles POST /chat/save — persists a user/assistant message pair
+// without running the LLM. Used by external chat runtimes (e.g. CopilotKit)
+// that handle their own LLM calls and just need history persistence.
+func (h *ChatHandler) Save(w http.ResponseWriter, r *http.Request) {
+	ac := middleware.GetAuthContext(r.Context())
+
+	var req struct {
+		UserMessage      string `json:"user_message"`
+		AssistantMessage string `json:"assistant_message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.UserMessage == "" && req.AssistantMessage == "" {
+		response.Error(w, http.StatusBadRequest, "at least one of user_message or assistant_message is required")
+		return
+	}
+
+	if err := h.chat.SaveMessagePair(r.Context(), ac.TenantID, req.UserMessage, req.AssistantMessage); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to save: "+err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
 // History handles GET /chat/history — returns recent messages.
 func (h *ChatHandler) History(w http.ResponseWriter, r *http.Request) {
 	ac := middleware.GetAuthContext(r.Context())

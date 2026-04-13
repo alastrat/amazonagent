@@ -179,6 +179,60 @@ func (s *ChatService) GetHistory(ctx context.Context, tenantID domain.TenantID, 
 	return s.repo.ListMessages(ctx, tenantID, limit)
 }
 
+// SaveMessagePair persists a user/assistant exchange without running the LLM.
+// Used by external chat runtimes (e.g. CopilotKit) that handle the LLM call
+// elsewhere and just need server-side history persistence.
+// Reuses the active chat session for the tenant, or creates a DB-only one
+// (no runtime agent session required).
+func (s *ChatService) SaveMessagePair(ctx context.Context, tenantID domain.TenantID, userContent, assistantContent string) error {
+	session, _ := s.repo.GetSession(ctx, tenantID)
+	if session == nil {
+		session = &domain.ChatSession{
+			ID:             s.idGen.New(),
+			TenantID:       tenantID,
+			AgentSessionID: "", // external runtime manages its own session
+			Status:         domain.ChatSessionActive,
+			CreatedAt:      time.Now(),
+			LastMessageAt:  time.Now(),
+		}
+		if err := s.repo.CreateSession(ctx, session); err != nil {
+			return fmt.Errorf("create session: %w", err)
+		}
+	}
+
+	now := time.Now()
+
+	if userContent != "" {
+		if err := s.repo.SaveMessage(ctx, &domain.ChatMessage{
+			ID:        s.idGen.New(),
+			TenantID:  tenantID,
+			SessionID: session.ID,
+			Role:      domain.ChatRoleUser,
+			Content:   userContent,
+			CreatedAt: now,
+		}); err != nil {
+			return fmt.Errorf("save user message: %w", err)
+		}
+	}
+
+	if assistantContent != "" {
+		if err := s.repo.SaveMessage(ctx, &domain.ChatMessage{
+			ID:        s.idGen.New(),
+			TenantID:  tenantID,
+			SessionID: session.ID,
+			Role:      domain.ChatRoleAssistant,
+			Content:   assistantContent,
+			CreatedAt: now.Add(time.Millisecond), // ensure stable ordering after user msg
+		}); err != nil {
+			return fmt.Errorf("save assistant message: %w", err)
+		}
+	}
+
+	session.LastMessageAt = now
+	_ = s.repo.UpdateSession(ctx, session)
+	return nil
+}
+
 // buildSystemPrompt creates the concierge system prompt with tenant-specific context.
 func (s *ChatService) buildSystemPrompt(ctx context.Context, tenantID domain.TenantID) string {
 	prompt := `You are an FBA wholesale concierge for an Amazon seller. You help them find profitable products they can list and sell on Amazon via wholesale/arbitrage.

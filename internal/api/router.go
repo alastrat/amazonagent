@@ -109,6 +109,7 @@ func NewRouter(h Handlers, auth port.AuthProvider, idGen port.IDGenerator) *chi.
 		r.Delete("/seller-account/disconnect", h.SellerAccount.Disconnect)
 
 		r.Post("/chat/send", h.Chat.Send)
+		r.Post("/chat/save", h.Chat.Save)
 		r.Get("/chat/events", h.Chat.Events)
 		r.Get("/chat/history", h.Chat.History)
 
