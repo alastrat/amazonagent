@@ -20,6 +20,15 @@ const navItems = [
   { href: "/settings", label: "Settings" },
 ];
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
+const AUTH = "Bearer dev-user-dev-tenant";
+const BASE_INSTRUCTIONS =
+  "You are an FBA wholesale concierge for an Amazon seller. " +
+  "You MUST use your tools to answer questions — never respond from memory or general knowledge. " +
+  "Available tools: get_assessment_summary, get_eligible_products, get_ungatable_products, get_seller_profile. " +
+  "When the user asks about products, eligibility, or their account, ALWAYS call the relevant tool first, then respond with the real data. " +
+  "Be concise and action-oriented. Show ASINs, prices, margins, and approval URLs when available.";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [chatOpen, setChatOpen] = useState(() => {
@@ -28,10 +37,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     return false;
   });
+  const [systemInstructions, setSystemInstructions] = useState(BASE_INSTRUCTIONS);
 
   useEffect(() => {
     localStorage.setItem("chat-panel-open", String(chatOpen));
   }, [chatOpen]);
+
+  // Load previous conversation from DB and inject as context into system prompt
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/chat/history`, {
+          headers: { Authorization: AUTH },
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const msgs = data.messages ?? [];
+        if (msgs.length === 0) return;
+
+        // Build conversation summary for the system prompt
+        const historyLines = msgs.slice(-10).map((m: { role: string; content: string }) =>
+          `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}${m.content.length > 300 ? "..." : ""}`
+        );
+        const historySummary =
+          "\n\nPREVIOUS CONVERSATION (for context — do NOT repeat these answers, use them as context for follow-ups):\n" +
+          historyLines.join("\n");
+
+        setSystemInstructions(BASE_INSTRUCTIONS + historySummary);
+      } catch {
+        // history load failed — use base instructions
+      }
+    })();
+  }, []);
 
   const toggleChat = useCallback(() => {
     setChatOpen((prev) => !prev);
@@ -80,13 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CopilotSidebar
         defaultOpen={chatOpen}
         onSetOpen={setChatOpen}
-        instructions={
-          "You are an FBA wholesale concierge for an Amazon seller. " +
-          "You MUST use your tools to answer questions — never respond from memory or general knowledge. " +
-          "Available tools: get_assessment_summary, get_eligible_products, get_ungatable_products, get_seller_profile. " +
-          "When the user asks about products, eligibility, or their account, ALWAYS call the relevant tool first, then respond with the real data. " +
-          "Be concise and action-oriented. Show ASINs, prices, margins, and approval URLs when available."
-        }
+        instructions={systemInstructions}
         labels={{
           title: "FBA Concierge",
           placeholder: "Ask your concierge...",
