@@ -37,38 +37,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     return false;
   });
-  const [systemInstructions, setSystemInstructions] = useState(BASE_INSTRUCTIONS);
-
   useEffect(() => {
     localStorage.setItem("chat-panel-open", String(chatOpen));
   }, [chatOpen]);
-
-  // Load previous conversation from DB and inject as context into system prompt
-  useEffect(() => {
-    (async () => {
-      try {
-        const resp = await fetch(`${API_BASE}/chat/history`, {
-          headers: { Authorization: AUTH },
-        });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const msgs = data.messages ?? [];
-        if (msgs.length === 0) return;
-
-        // Build conversation summary for the system prompt
-        const historyLines = msgs.slice(-10).map((m: { role: string; content: string }) =>
-          `${m.role === "user" ? "User" : "Assistant"}: ${m.content.slice(0, 300)}${m.content.length > 300 ? "..." : ""}`
-        );
-        const historySummary =
-          "\n\nPREVIOUS CONVERSATION (for context — do NOT repeat these answers, use them as context for follow-ups):\n" +
-          historyLines.join("\n");
-
-        setSystemInstructions(BASE_INSTRUCTIONS + historySummary);
-      } catch {
-        // history load failed — use base instructions
-      }
-    })();
-  }, []);
 
   const toggleChat = useCallback(() => {
     setChatOpen((prev) => !prev);
@@ -117,7 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CopilotSidebar
         defaultOpen={chatOpen}
         onSetOpen={setChatOpen}
-        instructions={systemInstructions}
+        instructions={BASE_INSTRUCTIONS}
         labels={{
           title: "FBA Concierge",
           placeholder: "Ask your concierge...",

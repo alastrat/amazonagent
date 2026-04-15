@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useCopilotChat } from "@copilotkit/react-core";
+import { useCopilotMessagesContext } from "@copilotkit/react-core";
 import { TextMessage, MessageRole } from "@copilotkit/runtime-client-gql";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8081";
@@ -17,16 +17,16 @@ interface StoredMessage {
 /**
  * Persists CopilotKit chat history to the Go backend DB.
  *
- * On mount: fetches /chat/history and replays messages via appendMessage
- * with followUp:false (so Claude is not re-triggered).
+ * On mount: fetches /chat/history and writes directly into the
+ * CopilotMessagesContext so messages render visibly in the sidebar.
  *
- * On each completed exchange: posts the latest user/assistant pair to
- * /chat/save. Uses a watermark to avoid re-saving previously-restored messages.
+ * After each completed exchange: posts new user/assistant pairs to
+ * /chat/save. Uses a watermark (savedMessageIdsRef) to avoid re-saving.
  *
  * Mount once inside the CopilotKit provider.
  */
 export function CopilotChatPersistence() {
-  const { visibleMessages, appendMessage, isLoading } = useCopilotChat();
+  const { messages, setMessages } = useCopilotMessagesContext();
   const restoredRef = useRef(false);
   const savedMessageIdsRef = useRef<Set<string>>(new Set());
 
@@ -43,15 +43,24 @@ export function CopilotChatPersistence() {
         });
         if (!resp.ok) return;
         const data: { messages?: StoredMessage[] } = await resp.json();
-        const messages = data.messages ?? [];
-        for (const m of messages) {
-          if (m.role === "system") continue;
-          const role = m.role === "user" ? MessageRole.User : MessageRole.Assistant;
-          savedMessageIdsRef.current.add(m.id);
-          await appendMessage(
-            new TextMessage({ id: m.id, role, content: m.content }),
-            { followUp: false },
-          );
+        const stored = data.messages ?? [];
+        if (stored.length === 0) return;
+
+        const restored = stored
+          .filter((m) => m.role !== "system")
+          .map((m) => {
+            savedMessageIdsRef.current.add(m.id);
+            const role = m.role === "user" ? MessageRole.User : MessageRole.Assistant;
+            return new TextMessage({
+              id: m.id,
+              role,
+              content: m.content,
+              createdAt: new Date(m.created_at),
+            });
+          });
+
+        if (restored.length > 0) {
+          setMessages(restored);
         }
       } catch {
         // history load failed — start fresh
@@ -60,17 +69,16 @@ export function CopilotChatPersistence() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save messages after each complete exchange (when not streaming)
+  // Save new user/assistant pairs when they appear in context
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isLoading) return;
-    if (!visibleMessages || visibleMessages.length === 0) return;
+    if (!messages || messages.length === 0) return;
 
-    const textMessages = visibleMessages.filter(
+    const textMessages = messages.filter(
       (m): m is TextMessage => m instanceof TextMessage,
     );
 
-    // Find the most recent user → assistant pair that hasn't been saved yet
+    // Find the most recent unsaved user → assistant pair
     let lastUser: TextMessage | null = null;
     let lastAssistant: TextMessage | null = null;
     for (const m of textMessages) {
@@ -83,16 +91,13 @@ export function CopilotChatPersistence() {
       }
     }
 
-    // Only save if we have a complete user+assistant exchange
     if (!lastUser || !lastAssistant) return;
+    if (!lastUser.content || !lastAssistant.content) return;
 
-    const userContent = lastUser.content;
-    const assistantContent = lastAssistant.content;
-    if (!userContent || !assistantContent) return;
-
-    // Mark as saved optimistically so we don't double-save
-    savedMessageIdsRef.current.add(lastUser.id);
-    savedMessageIdsRef.current.add(lastAssistant.id);
+    const userId = lastUser.id;
+    const assistantId = lastAssistant.id;
+    savedMessageIdsRef.current.add(userId);
+    savedMessageIdsRef.current.add(assistantId);
 
     fetch(`${API_BASE}/chat/save`, {
       method: "POST",
@@ -101,15 +106,15 @@ export function CopilotChatPersistence() {
         Authorization: AUTH,
       },
       body: JSON.stringify({
-        user_message: userContent,
-        assistant_message: assistantContent,
+        user_message: lastUser.content,
+        assistant_message: lastAssistant.content,
       }),
     }).catch(() => {
-      // If save failed, allow retry next tick
-      savedMessageIdsRef.current.delete(lastUser!.id);
-      savedMessageIdsRef.current.delete(lastAssistant!.id);
+      // Allow retry on next tick if save failed
+      savedMessageIdsRef.current.delete(userId);
+      savedMessageIdsRef.current.delete(assistantId);
     });
-  }, [visibleMessages, isLoading]);
+  }, [messages]);
 
   return null;
 }
